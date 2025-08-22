@@ -1,0 +1,9 @@
+(library
+ (public_name ocaml_of_basil.ast)
+ (name lang)
+ (modules ast)
+ (flags -w -27)
+ (libraries zarith fix)
+ (inline_tests)
+ (preprocess (pps ppx_deriving.show ppx_deriving.eq ppx_deriving.ord ppx_deriving.map ppx_deriving.iter ppx_deriving.fold ppx_expect_nobase))
+ )

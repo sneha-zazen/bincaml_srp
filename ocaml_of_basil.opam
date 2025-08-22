@@ -12,6 +12,9 @@ bug-reports: "https://github.com/username/reponame/issues"
 depends: [
   "dune" {>= "3.19"}
   "ocaml"
+  "zarith"
+  "fix"
+  "ppx_expect_nobase" {>= "0.17.2.2"}
   "odoc" {with-doc}
 ]
 build: [

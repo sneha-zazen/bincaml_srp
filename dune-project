@@ -19,7 +19,12 @@
  (name ocaml_of_basil)
  (synopsis "A short synopsis")
  (description "A longer description")
- (depends ocaml)
+ (depends 
+   ocaml
+   zarith
+   fix
+   (ppx_expect_nobase (>= "0.17.2.2"))
+   )
  (tags
   ("add topics" "to describe" your project)))
 
