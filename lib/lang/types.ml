@@ -1,0 +1,55 @@
+module BType = struct
+  type t = Boolean | Integer | Bitvector of int | Unit | Top | Nothing
+  [@@deriving eq]
+
+  (*
+  Nothing < Unit < {boolean, integer, bitvector} < Top
+  *)
+  let compare (a : t) (b : t) =
+    match (a, b) with
+    | Top, Top -> 0
+    | Top, _ -> 1
+    | _, Top -> -1
+    | Nothing, Nothing -> 0
+    | Nothing, _ -> -1
+    | _, Nothing -> 1
+    | Unit, _ -> -1
+    | _, Unit -> 1
+    | Boolean, Integer -> 0
+    | Integer, Boolean -> 0
+    | Boolean, Bitvector _ -> 0
+    | Bitvector _, Boolean -> 0
+    | Boolean, Boolean -> 0
+    | Integer, Bitvector _ -> 0
+    | Bitvector _, Integer -> 0
+    | Bitvector a, Bitvector b -> Int.compare a b
+    | Integer, Integer -> 0
+
+  type lambda = Leaf of t | Lambda of (lambda * lambda)
+
+  let rec curry ?(acc = []) (l : lambda) : lambda list * lambda =
+    match l with
+    | Leaf _ as l -> (List.rev acc, l)
+    | Lambda (l, ts) -> curry ~acc:(l :: acc) ts
+
+  let uncurry (args : lambda list) (v : lambda) =
+    List.fold_left (fun a p -> Lambda (a, p)) v
+
+  let leaf_to_string = function
+    | Boolean -> "bool"
+    | Integer -> "int"
+    | Bitvector i -> "bv" ^ Int.to_string i
+    | Unit -> "()"
+    | Top -> "⊤"
+    | Nothing -> "⊥"
+
+  let rec lambda_to_string = function
+    | Lambda ((Lambda _ as a), Leaf b) ->
+        "(" ^ lambda_to_string a ^ ")" ^ "->" ^ leaf_to_string b
+    | Lambda ((Lambda _ as a), (Lambda _ as b)) ->
+        "(" ^ lambda_to_string a ^ ")" ^ "->" ^ "(" ^ lambda_to_string b ^ ")"
+    | Lambda (Leaf a, (Lambda _ as b)) ->
+        "(" ^ leaf_to_string a ^ ")" ^ "->" ^ lambda_to_string b
+    | Lambda (Leaf a, Leaf b) -> leaf_to_string a ^ "->" ^ leaf_to_string b
+    | Leaf l -> leaf_to_string l
+end
