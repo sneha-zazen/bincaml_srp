@@ -26,4 +26,10 @@ module type ORD_TYPE = sig
   val compare : t -> t -> int
 end
 
+module type HASH_TYPE = sig
+  include ORD_TYPE
+
+  val hash : t -> int
+end
+
 let identity x = x

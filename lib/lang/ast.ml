@@ -46,22 +46,18 @@ module AbstractExpr = struct
         combine 17 (combinel (hash body) (List.map hash_var args))
 
   module Final (F : sig
-    type e
-    type f
+    type 'v f
+    type const
+    type unary
+    type binary
+    type intrin
 
-    val fix : ('a, 'b, 'c, 'd, 'e, e) t -> f
+    val fix : (const, 'v, unary, binary, intrin, 'v f) t -> 'v f
+    val unfix : 'v f -> (const, 'v, unary, binary, intrin, 'v f) t
   end) =
   struct
-    (* smart constrs*)
-
-    let bvconst ~(width : int) v =
-      F.fix (Constant (`Bitvector (PrimQFBV.of_int ~width v)))
-
-    let assocexp ~op ls = F.fix (ApplyIntrin (op, ls))
-    let binexp ~op l r = F.fix (BinaryExpr (op, l, r))
-    let unexp ~op arg = F.fix (UnaryExpr (op, arg))
-    let boolconst b = F.fix (Constant (`Boolean b))
-    let variable v = F.fix (RVar v)
+    let ( >> ) = fun f g x -> g (f x)
+    let rec cata alg e = (F.unfix >> map (cata alg) >> alg) e
   end
 end
 
@@ -161,11 +157,48 @@ module Spec = struct
   let hash_intrin a = Hashtbl.hash a
 end
 
-module AllLogics = struct
+module type Ops = sig
+  type const
+  type unary
+  type binary
+  type intrin
+
+  val hash_const : const -> int
+  val hash_unary : unary -> int
+  val hash_binary : binary -> int
+  val hash_intrin : intrin -> int
+  val pp_const : Format.formatter -> const -> unit
+  val show_const : const -> string
+  val equal_const : const -> const -> bool
+  val pp_unary : Format.formatter -> unary -> unit
+  val show_unary : unary -> string
+  val equal_unary : unary -> unary -> bool
+  val pp_binary : Format.formatter -> binary -> unit
+  val show_binary : binary -> string
+  val equal_binary : binary -> binary -> bool
+  val pp_intrin : Format.formatter -> intrin -> unit
+  val show_intrin : intrin -> string
+  val equal_intrin : intrin -> intrin -> bool
+
+  type ('var, 'e) t = (const, 'var, unary, binary, intrin, 'e) AbstractExpr.t
+end
+
+module AllOps : Ops = struct
   type const = [ IntOps.const | BVOps.const ]
+  [@@deriving show { with_path = false }, eq]
+
   type unary = [ IntOps.unary | BVOps.unary ]
+  [@@deriving show { with_path = false }, eq]
+
   type binary = [ IntOps.binary | BVOps.binary ]
-  type intrin = BVOps.intrin
+  [@@deriving show { with_path = false }, eq]
+
+  let hash_const = Hashtbl.hash
+  let hash_unary = Hashtbl.hash
+  let hash_binary = Hashtbl.hash
+  let hash_intrin = Hashtbl.hash
+
+  type intrin = BVOps.intrin [@@deriving show { with_path = false }, eq]
   type ('var, 'e) t = (const, 'var, unary, binary, intrin, 'e) AbstractExpr.t
 end
 
@@ -199,7 +232,7 @@ module Expr = struct
 
   (* smart constructors *)
   let const v = fix (Constant v)
-  let intconst v = fix (Constant (BValue.Integer v))
+  let intconst v = fix (Constant v)
   let binexp ~op l r = fix (BinaryExpr (op, l, r))
   let unexp ~op arg = fix (UnaryExpr (op, arg))
   let fapply id params = fix (ApplyFun (id, params))
@@ -214,109 +247,35 @@ module Expr = struct
   module S = Set.Make (Var)
 
   let idf a b = a
-
-  let free_vars e =
-    let alg = function
-      | EX.RVar id -> S.singleton id
-      | o -> EX.fold S.union S.empty o
-    in
-    cata alg e
-
-  let substitute e =
-    let open EX in
-    let alg = function RVar i -> fix (RVar 0) | t -> fix t in
-    cata alg e
 end
 
-let printer_alg e =
-  let open AbstractExpr in
-  match e with
-  | RVar id -> Var.show id
-  | BinaryExpr (op, l, r) -> Format.sprintf "%s(%s, %s)" (show_binop op) l r
-  | UnaryExpr (op, a) -> Format.sprintf "%s(%s)" (Unary.show_unary op) a
-  | Constant i -> BValue.show i
-  | ApplyIntrin (intrin, args) ->
-      Format.sprintf "%s(%s)"
-        (Intrin.show_intrin intrin)
-        (String.concat ", " args)
-  | ApplyFun (n, args) -> Format.sprintf "%s(%s)" n (String.concat ", " args)
-  | Binding (vars, body) ->
-      Format.sprintf "((%s) -> %s)"
-        (String.concat ", " (List.map Var.show vars))
-        body
+module FixExpr (O : Ops) = struct
+  module F = struct
+    type const = O.const
+    type unary = O.unary
+    type binary = O.binary
+    type intrin = O.intrin
 
-let log_alg =
-  let alg e =
-    let s = printer_alg e in
-    print_endline s;
-    s
-  in
-  alg
+    type 'v f = 'v expr_node_v
 
-let%expect_test _ =
-  let open AbstractExpr in
-  let open Expr in
-  let to_string =
-    let alg e = printer_alg e in
-    cata alg
-  in
-  let e = fix @@ Constant (BValue.Integer (Z.of_int 50)) in
-  print_string @@ to_string @@ binexp ~op:`INTADD e e;
-  [%expect {|`INTADD(50, 50) |}]
+    and 'v expr_node_v =
+      | E of (const, 'v, unary, binary, intrin, 'v f) AbstractExpr.t
 
-let exp_bool () =
-  let open Expr in
-  binexp ~op:`BOOLAND
-    (intconst (Z.of_int 50))
-    (binexp ~op:`BOOLAND
-       (intconst (Z.of_int 50))
-       (binexp ~op:`BOOLAND
-          (intconst (Z.of_int 50))
-          (binexp ~op:`BOOLAND (intconst (Z.of_int 50)) (intconst (Z.of_int 5)))))
+    let fix e = E e
+    let unfix e = match e with E e -> e
+  end
 
-let exp_all () =
-  let open Expr in
-  binexp ~op:`INTADD
-    (intconst (Z.of_int 50))
-    (binexp ~op:`INTADD
-       (intconst (Z.of_int 50))
-       (binexp ~op:`INTADD
-          (intconst (Z.of_int 50))
-          (binexp ~op:`INTADD (intconst (Z.of_int 50)) (intconst (Z.of_int 5)))))
+  include F
+  include AbstractExpr.Final (F)
 
-let%expect_test _ =
-  let alg = log_alg in
-  let open Expr in
-  let p = cata alg in
-  ignore (p @@ exp_all ());
-  [%expect
-    {|
-  5
-  50
-  `INTADD(50, 5)
-  50
-  `INTADD(50, `INTADD(50, 5))
-  50
-  `INTADD(50, `INTADD(50, `INTADD(50, 5)))
-  50
-  `INTADD(50, `INTADD(50, `INTADD(50, `INTADD(50, 5))))|}]
+  (* smart constructors*)
+  let const v = fix (Constant v)
+  let intconst v = fix (Constant v)
+  let binexp ~op l r = fix (BinaryExpr (op, l, r))
+  let unexp ~op arg = fix (UnaryExpr (op, arg))
+  let fapply id params = fix (ApplyFun (id, params))
+  let applyintrin id params = fix (ApplyIntrin (id, params))
+  let identity x = x
+end
 
-let%expect_test _ =
-  let alg = log_alg in
-  let open Expr in
-  let p = cata alg in
-  ignore (p @@ exp_bool ());
-  [%expect
-    {| 
-      5
-      50
-      `BOOLAND(50, 5)
-      50
-      `BOOLAND(50, `BOOLAND(50, 5))
-      50
-      `BOOLAND(50, `BOOLAND(50, `BOOLAND(50, 5)))
-      50
-      `BOOLAND(50, `BOOLAND(50, `BOOLAND(50, `BOOLAND(50, 5))))
-    |}]
-
-let () = Printexc.record_backtrace true
+module BasilExpr = FixExpr (AllOps)
