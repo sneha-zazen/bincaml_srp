@@ -2,6 +2,45 @@ open Common
 open Containers
 open Value
 
+module Var = struct
+  module V = struct
+    type t = { name : string; typ : Types.BType.t; pure : bool }
+    [@@deriving eq, ord]
+
+    let var name ?(pure = true) typ = { name; typ; pure }
+    let hash v = Hashtbl.hash v
+  end
+
+  module H = Fix.HashCons.ForHashedTypeWeak (V)
+
+  type t = V.t Fix.HashCons.cell
+
+  let create name ?(pure = false) typ = H.make { name; typ; pure }
+  let name (e : t) = (Fix.HashCons.data e).name
+  let typ (e : t) = (Fix.HashCons.data e).typ
+  let pure (e : t) = (Fix.HashCons.data e).pure
+  let compare (a : t) (b : t) = Fix.HashCons.compare a b
+  let equal (a : t) (b : t) = Fix.HashCons.equal a b
+  let hash (a : t) = Fix.HashCons.hash a
+
+  module Set = CCHashSet.Make (V)
+  module Bindings = CCHashTrie.Make (V)
+
+  module Decls = struct
+    type var = t
+    type t = (string, var) Hashtbl.t
+
+    let find_opt m name = Hashtbl.find_opt m name
+
+    let add m (v : var) =
+      let d = find_opt m (name v) in
+      match d with
+      | Some e when equal e v -> ()
+      | Some e -> failwith "Already declared diff var with that name: "
+      | None -> Hashtbl.add m (name v) v
+  end
+end
+
 module AbstractExpr = struct
   type ('const, 'var, 'unary, 'binary, 'intrin, 'e) t =
     | RVar of 'var  (** variables *)
@@ -46,6 +85,7 @@ module AbstractExpr = struct
     | Binding (args, body) ->
         combine 17 (combinel (hash body) (List.map hash_var args))
 
+  (*
   type ('const, 'var, 'unary, 'binary, 'intrin, 'e) abs =
     ('const, 'var, 'unary, 'binary, 'intrin, 'e) t
 
@@ -63,21 +103,29 @@ module AbstractExpr = struct
     let ( >> ) = fun f g x -> g (f x)
     let rec cata alg e = (F.unfix >> map (cata alg) >> alg) e
   end
+  *)
 end
 
-module Unary = struct
-  type unary = [ `BITNOT | `LOGNOT | `NEG ]
-  [@@deriving show { with_path = false }, eq, enum]
+module Maps = struct
+  (* map, value -> result *)
+  type binary = [ `MapIndex ] [@@deriving show { with_path = false }, eq]
+  type intrin = [ `MapUpdate ] [@@deriving show { with_path = false }, eq]
 
-  let hash_unary = unary_to_enum
+  let show = function
+    | #binary as b -> show_binary b
+    | #intrin as b -> show_intrin b
+
+  let hash = Hashtbl.hash
 end
 
 module LogicalOps = struct
   type const = [ `Bool of bool ] [@@deriving show { with_path = false }, eq]
   type unary = [ `LNOT ] [@@deriving show { with_path = false }, eq]
-  type binary = [ `EQ | `NEQ ] [@@deriving show { with_path = false }, eq]
-  type assoc = [ `BitAND | `BitOR ]
-  type intrin = [ `BVConcat ]
+
+  type binary = [ `EQ | `NEQ | `IMPLIES ]
+  [@@deriving show { with_path = false }, eq]
+
+  type intrin = [ `AND | `OR ] [@@deriving show { with_path = false }, eq]
 
   let show = function
     | #const as c -> show_const c
@@ -88,15 +136,14 @@ module LogicalOps = struct
 end
 
 module BVOps = struct
-  type const = [ `Bitvector of PrimQFBV.t | LogicalOps.const ]
+  type const = [ `Bitvector of PrimQFBV.t ]
   [@@deriving show { with_path = false }, eq]
 
-  type unary = [ LogicalOps.unary | `BITNOT | `BVNEG ]
+  type unary = [ `BVNOT | `BVNEG | `BOOL2BV1 ]
   [@@deriving show { with_path = false }, eq]
 
   type binary =
-    [ LogicalOps.binary
-    | `BVAND
+    [ `BVAND
     | `BVOR
     | `BVADD
     | `BVMUL
@@ -117,11 +164,18 @@ module BVOps = struct
     | `BVULT
     | `BVULE
     | `BVSLT
-    | `BVSLE ]
+    | `BVSLE
+    | `BVConcat ]
   [@@deriving show { with_path = false }, eq]
 
   type intrin =
-    [ `ZeroExtend of int | `SignExtend of int | `Extract of int * int ]
+    [ `ZeroExtend of int
+    | `SignExtend of int
+    | `Extract of int * int
+    | `BVAND
+    | `BVOR
+    | `BVADD
+    | `BVXOR ]
   [@@deriving show { with_path = false }, eq]
 
   let show = function
@@ -136,7 +190,8 @@ module IntOps = struct
 
   type unary = [ `INTNEG ] [@@deriving show { with_path = false }, eq]
 
-  type binary = [ `INTADD | `INTMUL | `INTSUB | `INTDIV | `INTMOD ]
+  type binary =
+    [ `INTADD | `INTMUL | `INTSUB | `INTDIV | `INTMOD | `INTLT | `INTLE ]
   [@@deriving show { with_path = false }, eq]
 
   let show = function
@@ -178,14 +233,18 @@ module type Ops = sig
   type ('var, 'e) t = (const, 'var, unary, binary, intrin, 'e) AbstractExpr.t
 end
 
-module AllOps : Ops = struct
-  type const = [ IntOps.const | BVOps.const ]
+module AllOps = struct
+  type const = [ IntOps.const | BVOps.const | LogicalOps.const ]
   [@@deriving show { with_path = false }, eq]
 
-  type unary = [ IntOps.unary | BVOps.unary ]
+  type unary = [ IntOps.unary | BVOps.unary | Spec.unary | LogicalOps.unary ]
   [@@deriving show { with_path = false }, eq]
 
-  type binary = [ IntOps.binary | BVOps.binary ]
+  type binary =
+    [ IntOps.binary | BVOps.binary | Maps.binary | LogicalOps.binary ]
+  [@@deriving show { with_path = false }, eq]
+
+  type intrin = [ BVOps.intrin | Maps.intrin | LogicalOps.intrin ]
   [@@deriving show { with_path = false }, eq]
 
   let hash_const = Hashtbl.hash
@@ -193,7 +252,6 @@ module AllOps : Ops = struct
   let hash_binary = Hashtbl.hash
   let hash_intrin = Hashtbl.hash
 
-  type intrin = BVOps.intrin [@@deriving show { with_path = false }, eq]
   type ('var, 'e) t = (const, 'var, unary, binary, intrin, 'e) AbstractExpr.t
 end
 
@@ -226,21 +284,24 @@ module Expr = struct
     match e with E e -> e
 
   (* smart constructors *)
+  let rvar v = fix (RVar v)
   let const v = fix (Constant v)
   let intconst v = fix (Constant v)
   let binexp ~op l r = fix (BinaryExpr (op, l, r))
   let unexp ~op arg = fix (UnaryExpr (op, arg))
   let fapply id params = fix (ApplyFun (id, params))
-  let applyintrin id params = fix (ApplyIntrin (id, params))
+  let binding params body = fix (Binding (params, body))
   let identity x = x
+  let applyintrin ~op params = fix (ApplyIntrin (op, params))
+  let apply_fun ~name params = fix (ApplyFun (name, params))
 
   (* this map definition embeds unfix *)
   let map f e = EX.map f e
   let ( >> ) = fun f g x -> g (f x)
   let rec cata alg e = (unfix >> map (cata alg) >> alg) e
-  let idf a b = a
 end
 
+(*
 module FixExpr (O : Ops) = struct
   module F = struct
     type const = O.const
@@ -262,14 +323,37 @@ module FixExpr (O : Ops) = struct
 
   (* smart constructors*)
   let const v = fix (Constant v)
-  let intconst v = fix (Constant v)
   let binexp ~op l r = fix (BinaryExpr (op, l, r))
   let unexp ~op arg = fix (UnaryExpr (op, arg))
   let fapply id params = fix (ApplyFun (id, params))
   let applyintrin id params = fix (ApplyIntrin (id, params))
   let identity x = x
 end
+*)
 
 module BasilExpr = struct
-  include FixExpr (AllOps)
+  include Expr
+
+  type t =
+    (AllOps.const, Var.t, AllOps.unary, AllOps.binary, AllOps.intrin) expr
+
+  let identity x = x
+  let intconst (v : PrimInt.t) : t = const (`Integer v)
+  let boolconst (v : bool) : t = const (`Bool v)
+  let bvconst (v : PrimQFBV.t) : t = const (`Bitvector v)
+  let load_expr (mem : Var.t) index : t = binexp ~op:`MapIndex (rvar mem) index
+
+  let zero_extend ~n_prefix_bits (e : t) : t =
+    applyintrin ~op:(`ZeroExtend n_prefix_bits) [ e ]
+
+  let sign_extend ~n_prefix_bits (e : t) : t =
+    applyintrin ~op:(`SignExtend n_prefix_bits) [ e ]
+
+  let extract ~hi_incl ~lo_excl (e : t) : t =
+    applyintrin ~op:(`Extract (hi_incl, lo_excl)) [ e ]
+
+  let concat (e : t) (f : t) : t = binexp ~op:`BVConcat e f
+  let forall ~bound p = unexp ~op:`Forall (binding bound p)
+  let exists ~bound p = unexp ~op:`Exists (binding bound p)
+  let boolnot e = unexp ~op:`LNOT e
 end

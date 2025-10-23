@@ -37,7 +37,7 @@ module PrimQFBV = struct
   let compare a b =
     Int.compare a.w b.w |> function 0 -> Z.compare a.v b.v | o -> o
 
-  let of_bigint ~(width : int) (v : Z.t) : t =
+  let create ~(width : int) (v : Z.t) : t =
     assert (width >= 0);
     let v = z_extract v 0 width in
     { w = width; v }
@@ -46,7 +46,7 @@ module PrimQFBV = struct
     assert (width > 0);
     let v = Z.of_int i in
     assert (Z.gt v (Z.of_int 0));
-    of_bigint ~width v
+    create ~width v
 
   let of_string i =
     let vty = String.split_on_char ':' i in
@@ -67,11 +67,11 @@ module PrimQFBV = struct
     { w; v }
 
   let size_is_equal a b = assert (width a = width b)
-  let bind f a = of_bigint ~width:a.w (f a.v)
+  let bind f a = create ~width:a.w (f a.v)
 
   let bind2 f a b =
     size_is_equal a b;
-    of_bigint ~width:a.w (f a.v b.v)
+    create ~width:a.w (f a.v b.v)
 
   let map2 f a b =
     size_is_equal a b;
@@ -88,7 +88,7 @@ module PrimQFBV = struct
   let udiv a b =
     size_is_equal a b;
     let v = if Z.equal b.v Z.zero then Z.minus_one else Z.div a.v b.v in
-    of_bigint ~width:a.w v
+    create ~width:a.w v
 
   let sdiv a b =
     let neg_out = if is_negative a || is_negative b then neg else identity in
