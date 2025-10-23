@@ -1,3 +1,4 @@
 (library
  (name ocaml_of_basil )
+ (flags -w -27)
  (libraries basil_ast ocaml_of_basil.ast))

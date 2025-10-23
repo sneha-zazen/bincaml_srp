@@ -31,6 +31,7 @@ module Var = struct
     type t = (string, var) Hashtbl.t
 
     let find_opt m name = Hashtbl.find_opt m name
+    let empty () : t = Hashtbl.create 30
 
     let add m (v : var) =
       let d = find_opt m (name v) in
