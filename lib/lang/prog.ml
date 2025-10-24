@@ -1,9 +1,51 @@
 open Value
 open Common
 open Types
-open Ast
+open Expr
 open ContainersLabels
-module ID = Int
+
+module ID = struct
+  include Int
+  module Map = Map.Make (Int)
+
+  module Named = struct
+    (* generator for unique integer identifiers with an optionally associated name. 
+       maintains a mapping between id and name.
+
+       note: ID.t is the canonical identifier, 
+        with the associated name assumed to be unique with respect to it.
+       *)
+    module M = CCBijection.Make (String) (Int)
+
+    type cache = { names : M.t ref; gen : Fix.Gensym.gensym }
+
+    let get_id c name = M.find_left name !(c.names)
+    let get_name c id = M.find_right id !(c.names)
+
+    let fresh c ?(name : string option) () =
+      let id = c.gen () in
+      Option.iter (fun n -> c.names := M.add n id !(c.names)) name;
+      id
+
+    type t = {
+      get_id : string -> int;
+      get_name : int -> string;
+      fresh : ?name:string -> unit -> int;
+    }
+
+    let make () =
+      let c = { names = ref M.empty; gen = Fix.Gensym.make () } in
+      { get_id = get_id c; fresh = fresh c; get_name = get_name c }
+  end
+end
+
+module Params = struct
+  module M = Map.Make (String)
+
+  type formal = Var.t M.t [@@deriving eq, ord]
+  type actual = BasilExpr.t M.t [@@deriving eq, ord]
+  type lhs = Var.t M.t [@@deriving eq, ord]
+end
 
 module Stmt = struct
   type endian = [ `Big | `Little ] [@@deriving eq, ord]
@@ -11,15 +53,22 @@ module Stmt = struct
 
   type ('var, 'expr) t =
     | Instr_Assign of ('var * 'expr) list
-    | Instr_Load of { lhs : 'var; rvar : Var.t; addr : 'expr; endian : endian }
+    | Instr_Assert of { body : 'expr }
+    | Instr_Assume of { body : 'expr; branch : bool }
+    | Instr_Load of { lhs : 'var; mem : Var.t; addr : 'expr; endian : endian }
     | Instr_Store of {
-        lhs : 'var;
+        mem : Var.t;
         addr : 'expr;
         value : 'expr;
         endian : endian;
       }
-    | Instr_Call of { lhs : 'var list; procid : ID.t; args : 'expr list }
-    | Instr_IntrinCall of { lhs : 'var list; name : string; args : 'expr list }
+    | Instr_Call of { lhs : Params.lhs; procid : ID.t; args : 'expr list }
+    | Instr_Return of { args : Params.actual }
+    | Instr_IntrinCall of {
+        lhs : Params.lhs;
+        name : string;
+        args : Params.actual;
+      }
     | Instr_IndirectCall of { target : 'expr }
   [@@deriving eq, ord]
 end
@@ -60,9 +109,8 @@ module Procedure = struct
 
   type t = {
     id : ID.t;
-    name : string;
-    formal_in_params : Var.t list;
-    formal_out_params : Var.t list;
+    formal_in_params : Params.formal;
+    formal_out_params : Params.formal;
     captures_globs : Var.Decls.t;
     modifies_globs : Var.Decls.t;
     requires : BasilExpr.t list;
@@ -79,13 +127,13 @@ module Procedure = struct
     let fr = End from in
     List.iter ~f:(fun t -> G.add_edge g fr (Begin t)) targets
 
-  let create p id name ?(formal_in_params = []) ?(formal_out_params = [])
+  let create id ?(formal_in_params = Params.M.empty)
+      ?(formal_out_params = Params.M.empty)
       ?(captures_globs = Var.Decls.empty ())
       ?(modifies_globs = Var.Decls.empty ()) ?(requires = []) ?(ensures = [])
       ?(locals = Var.Decls.empty ()) ?(blocks = Vector.create ()) () =
     {
       id;
-      name;
       formal_in_params;
       formal_out_params;
       captures_globs;
@@ -126,6 +174,13 @@ module Procedure = struct
       match e with Block b -> Some b | Jump -> None
     with Not_found -> None
 
+  let update_block p (block : Block.t) =
+    let open Edge in
+    let open G in
+    let id = block.id in
+    G.remove_edge p.graph (Begin id) (End id);
+    G.add_edge_e p.graph (Begin id, Block block, End id)
+
   let fresh_var p ?(pure = true) typ =
     let n = "v" ^ Int.to_string (p.gensym ()) in
     let v = Var.create n typ in
@@ -136,19 +191,26 @@ module Procedure = struct
 end
 
 module Program = struct
-  module IDMap = Map.Make (ID)
-
   type e = BasilExpr.t
   type proc = Procedure.t
   type bloc = Block.t
   type stmt = (Var.t, e) Stmt.t
-  type t = { modulename : string; globals : Var.Decls.t; procs : proc IDMap.t }
+
+  type t = {
+    modulename : string;
+    globals : Var.Decls.t;
+    procs : proc ID.Map.t;
+    proc_names : ID.Named.t;
+  }
 
   let decl_glob p = Var.Decls.add p.globals
 
   let empty ?name () =
     let modulename = Option.get_or ~default:"<module>" name in
-    { modulename; globals = Var.Decls.empty (); procs = IDMap.empty }
-
-  (*type t = { procedure_name : string IDMap.t; block_label : string IDMap.t }*)
+    {
+      modulename;
+      globals = Var.Decls.empty ();
+      procs = ID.Map.empty;
+      proc_names = ID.Named.make ();
+    }
 end
