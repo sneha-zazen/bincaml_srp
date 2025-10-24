@@ -45,11 +45,41 @@ module Params = struct
   type formal = Var.t M.t [@@deriving eq, ord]
   type actual = BasilExpr.t M.t [@@deriving eq, ord]
   type lhs = Var.t M.t [@@deriving eq, ord]
+
+  let show_actual a =
+    M.to_list a
+    |> List.map ~f:(function k, v ->
+           Printf.sprintf "%s -> %s" k (BasilExpr.to_string v))
+    |> String.concat ~sep:", "
+    |> fun x -> "(" ^ x ^ ")"
+
+  let pp_actual fmt a = Format.pp_print_string fmt (show_actual a)
+
+  let show_formal (a : formal) =
+    M.to_list a
+    |> List.map ~f:(function k, v ->
+           Printf.sprintf "%s -> %s" k (Var.to_string v))
+    |> String.concat ~sep:", "
+    |> fun x -> "(" ^ x ^ ")"
+
+  let pp_formal fmt a = Format.pp_print_string fmt (show_formal a)
+
+  let show_lhs (a : lhs) =
+    M.to_list a
+    |> List.map ~f:(function k, v ->
+           Printf.sprintf "%s <- %s" (Var.to_string v) k)
+    |> String.concat ~sep:", "
+    |> fun x -> "(" ^ x ^ ")"
+
+  let pp_lhs fmt a = Format.pp_print_string fmt (show_lhs a)
 end
 
 module Stmt = struct
   type endian = [ `Big | `Little ] [@@deriving eq, ord]
   type ident = string
+
+  let show_endian = function `Big -> "be" | `Little -> "le"
+  let pp_endian fmt e = Format.pp_print_string fmt (show_endian e)
 
   type ('var, 'expr) t =
     | Instr_Assign of ('var * 'expr) list
@@ -62,7 +92,7 @@ module Stmt = struct
         value : 'expr;
         endian : endian;
       }
-    | Instr_Call of { lhs : Params.lhs; procid : ID.t; args : 'expr list }
+    | Instr_Call of { lhs : Params.lhs; procid : ID.t; args : Params.actual }
     | Instr_Return of { args : Params.actual }
     | Instr_IntrinCall of {
         lhs : Params.lhs;
@@ -70,19 +100,53 @@ module Stmt = struct
         args : Params.actual;
       }
     | Instr_IndirectCall of { target : 'expr }
-  [@@deriving eq, ord]
+  [@@deriving eq, ord, map, show]
+
+  let p = pp
+
+  let to_string show_var show_expr (s : (Var.t, BasilExpr.t) t) =
+    map show_var show_expr s |> function
+    | Instr_Assign ls ->
+        List.map ~f:(function lhs, rhs -> lhs ^ " := " ^ rhs) ls
+        |> String.concat ~sep:", "
+    | Instr_Assert { body } -> "assert " ^ body
+    | Instr_Assume { body; branch = false } -> "assume " ^ body
+    | Instr_Assume { body; branch = true } -> "guard " ^ body
+    | Instr_Load { lhs; mem; addr; endian } ->
+        lhs ^ " := " ^ "load_" ^ show_endian endian ^ " " ^ addr
+    | Instr_Store { mem; addr; value; endian } ->
+        "store_" ^ show_endian endian ^ " " ^ addr ^ " " ^ value
+    | Instr_Call { lhs; procid; args } ->
+        let lhs =
+          if Params.M.is_empty lhs then "" else Params.show_lhs lhs ^ " := "
+        in
+        lhs ^ " := call " ^ Params.show_actual args
+    | Instr_Return { args } -> "return " ^ Params.show_actual args
+    | Instr_IntrinCall { lhs; name; args } ->
+        let lhs =
+          if Params.M.is_empty lhs then "" else Params.show_lhs lhs ^ " := "
+        in
+        lhs ^ " := call " ^ name ^ Params.show_actual args
+    | Instr_IndirectCall { target } -> "indirect_call " ^ target
 end
 
 module Block = struct
   type 'var phi = Phi of { lhs : 'var; rhs : (ID.t * 'var) list }
-  [@@deriving eq, ord]
+  [@@deriving eq, ord, show]
 
   type t = {
     id : ID.t;
     phis : Var.t list;
     stmts : (Var.t, BasilExpr.t) Stmt.t list;
   }
-  [@@deriving eq, ord]
+  [@@deriving eq, ord, show, map]
+
+  let to_string b =
+    Printf.sprintf "block %d [\n  %s]\n" b.id
+      (List.map
+         ~f:(fun stmt -> Stmt.to_string Var.to_string BasilExpr.to_string stmt)
+         b.stmts
+      |> String.concat ~sep:";\n  ")
 end
 
 module Procedure = struct
@@ -101,6 +165,8 @@ module Procedure = struct
     type block = Block.t [@@deriving eq, ord]
     type t = Block of block | Jump [@@deriving eq, ord]
 
+    let show = function Block b -> Block.show b | Jump -> "goto"
+    let to_string = function Block b -> Block.to_string b | Jump -> "goto"
     let default = Jump
   end
 

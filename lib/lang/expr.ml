@@ -139,6 +139,23 @@ module BasilExpr = struct
   module R = Recursion (E)
   include R
 
+  (* printers *)
+  let print_alg =
+    let open AbstractExpr in
+    function
+    | RVar v -> Var.to_string v
+    | Constant c -> AllOps.to_string c
+    | UnaryExpr (op, e) -> AllOps.to_string op ^ "(" ^ e ^ ")"
+    | BinaryExpr (op, e, e2) -> AllOps.to_string op ^ "(" ^ e ^ ", " ^ e2 ^ ")"
+    | ApplyIntrin (op, es) ->
+        AllOps.to_string op ^ "(" ^ String.concat ", " es ^ ")"
+    | ApplyFun (n, es) -> n ^ "(" ^ String.concat ", " es ^ ")"
+    | Binding (vs, b) -> String.concat " " (List.map Var.show vs) ^ " :: " ^ b
+
+  let to_string s = cata print_alg s
+  let pp fmt s = Format.pp_print_string fmt @@ to_string s
+
+  (* constructor helpers *)
   let intconst (v : PrimInt.t) : t = const (`Integer v)
   let boolconst (v : bool) : t = const (`Bool v)
   let bvconst (v : PrimQFBV.t) : t = const (`Bitvector v)
@@ -156,5 +173,5 @@ module BasilExpr = struct
   let concat (e : t) (f : t) : t = binexp ~op:`BVConcat e f
   let forall ~bound p = unexp ~op:`Forall (binding bound p)
   let exists ~bound p = unexp ~op:`Exists (binding bound p)
-  let boolnot e = unexp ~op:`LNOT e
+  let boolnot e = unexp ~op:`NOT e
 end

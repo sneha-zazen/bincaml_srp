@@ -16,55 +16,54 @@ module BType = struct
   (*
   Nothing < Unit < {boolean, integer, bitvector} < Top
   *)
-  let rec compare (a : t) (b : t) =
+  let rec compare_partial (a : t) (b : t) =
     match (a, b) with
-    | Top, Top -> 0
-    | Top, _ -> 1
-    | _, Top -> -1
-    | Nothing, Nothing -> 0
-    | Nothing, _ -> -1
-    | _, Nothing -> 1
-    | Unit, _ -> -1
-    | _, Unit -> 1
-    | Boolean, Integer -> 0
-    | Integer, Boolean -> 0
-    | Boolean, Bitvector _ -> 0
-    | Bitvector _, Boolean -> 0
-    | Boolean, Boolean -> 0
-    | Integer, Bitvector _ -> 0
-    | Bitvector _, Integer -> 0
-    | Bitvector a, Bitvector b -> Int.compare a b
-    | Integer, Integer -> 0
+    | Top, Top -> Some 0
+    | Top, _ -> Some 1
+    | _, Top -> Some (-1)
+    | Nothing, Nothing -> Some 0
+    | Nothing, _ -> Some (-1)
+    | _, Nothing -> Some 1
+    | Unit, _ -> Some (-1)
+    | _, Unit -> Some 1
+    | Boolean, Integer -> None
+    | Integer, Boolean -> None
+    | Boolean, Bitvector _ -> None
+    | Bitvector _, Boolean -> None
+    | Boolean, Boolean -> None
+    | Integer, Bitvector _ -> None
+    | Bitvector _, Integer -> None
+    | Bitvector a, Bitvector b -> Some (Int.compare a b)
+    | Integer, Integer -> Some 0
     | Map (k, v), Map (k2, v2) -> (
-        compare k k2 |> function 0 -> compare v v2 | o -> o)
-    | Map (k, v), _ -> 0
-    | _, Map (k, v) -> 0
+        compare_partial k k2 |> function
+        | Some 0 -> compare_partial v v2
+        | o -> o)
+    | Map (k, v), _ -> None
+    | _, Map (k, v) -> None
 
-  type lambda = Leaf of t | Lambda of (lambda * lambda)
+  let compare a b = compare_partial a b |> Option.get_or ~default:0
 
-  let rec curry ?(acc = []) (l : lambda) : lambda list * lambda =
+  let rec curry ?(acc = []) (l : t) : t list * t =
     match l with
-    | Leaf _ as l -> (List.rev acc, l)
-    | Lambda (l, ts) -> curry ~acc:(l :: acc) ts
+    | Map (l, ts) -> curry ~acc:(l :: acc) ts
+    | l -> (List.rev acc, l)
 
-  let uncurry (args : lambda list) (v : lambda) =
-    List.fold_left (fun a p -> Lambda (a, p)) v
+  let uncurry (args : t list) (v : t) = List.fold_left (fun a p -> Map (a, p)) v
 
-  let leaf_to_string = function
+  let rec to_string = function
     | Boolean -> "bool"
     | Integer -> "int"
     | Bitvector i -> "bv" ^ Int.to_string i
     | Unit -> "()"
     | Top -> "⊤"
     | Nothing -> "⊥"
+    | Map ((Map _ as a), (Map _ as b)) ->
+        "(" ^ to_string a ^ ")" ^ "->" ^ "(" ^ to_string b ^ ")"
+    | Map ((Map _ as a), b) -> "(" ^ to_string a ^ ")" ^ "->" ^ to_string b
+    | Map (a, (Map _ as b)) -> "(" ^ to_string a ^ ")" ^ "->" ^ to_string b
+    | Map (a, b) -> to_string a ^ "->" ^ to_string b
 
-  let rec lambda_to_string = function
-    | Lambda ((Lambda _ as a), Leaf b) ->
-        "(" ^ lambda_to_string a ^ ")" ^ "->" ^ leaf_to_string b
-    | Lambda ((Lambda _ as a), (Lambda _ as b)) ->
-        "(" ^ lambda_to_string a ^ ")" ^ "->" ^ "(" ^ lambda_to_string b ^ ")"
-    | Lambda (Leaf a, (Lambda _ as b)) ->
-        "(" ^ leaf_to_string a ^ ")" ^ "->" ^ lambda_to_string b
-    | Lambda (Leaf a, Leaf b) -> leaf_to_string a ^ "->" ^ leaf_to_string b
-    | Leaf l -> leaf_to_string l
+  let show (b : t) = to_string b
+  let pp fmt b = Format.pp_print_string fmt (show b)
 end

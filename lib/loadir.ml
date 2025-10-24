@@ -234,7 +234,10 @@ module BasilASTLoader = struct
         let procid = p_st.prog.proc_names.get_id n in
         let in_param, out_param = Hashtbl.find p_st.params_order n in
         let lhs = trans_call_lhs (List.map fst out_param) calllvars in
-        let args = List.map trans_expr exprs in
+        let args =
+          List.combine (List.map fst in_param) (List.map trans_expr exprs)
+          |> Params.M.of_list
+        in
         [ Instr_Call { lhs; procid; args } ]
     | Stmt_IndirectCall expr ->
         [ Instr_IndirectCall { target = trans_expr expr } ]
@@ -335,16 +338,16 @@ module BasilASTLoader = struct
         | #AllOps.intrin as op ->
             BasilExpr.applyintrin ~op [ trans_expr expr0; trans_expr expr ]
         | `BVUGT ->
-            BasilExpr.unexp ~op:`LNOT
+            BasilExpr.unexp ~op:`NOT
               (BasilExpr.binexp ~op:`BVULE (trans_expr expr0) (trans_expr expr))
         | `BVUGE ->
-            BasilExpr.unexp ~op:`LNOT
+            BasilExpr.unexp ~op:`NOT
               (BasilExpr.binexp ~op:`BVULT (trans_expr expr0) (trans_expr expr))
         | `BVSGT ->
-            BasilExpr.unexp ~op:`LNOT
+            BasilExpr.unexp ~op:`NOT
               (BasilExpr.binexp ~op:`BVSLE (trans_expr expr0) (trans_expr expr))
         | `BVSGE ->
-            BasilExpr.unexp ~op:`LNOT
+            BasilExpr.unexp ~op:`NOT
               (BasilExpr.binexp ~op:`BVSLT (trans_expr expr0) (trans_expr expr))
         | `INTGT -> failwith "usupported up : intgt"
         | `INTGE -> failwith "unsupported op: intge")
@@ -396,7 +399,7 @@ module BasilASTLoader = struct
   and transUnOp (x : BasilIR.AbsBasilIR.unOp) =
     match x with
     | UnOpBVUnOp bvunop -> transBVUnOp bvunop
-    | UnOp_boolnot -> `LNOT
+    | UnOp_boolnot -> `NOT
     | UnOp_intneg -> `INTNEG
     | UnOp_booltobv1 -> `BOOL2BV1
 

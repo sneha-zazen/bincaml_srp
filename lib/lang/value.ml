@@ -11,6 +11,7 @@ module PrimInt = struct
 
   let pp = Z.pp_print
   let show i = Z.to_string i
+  let to_string i = show i
   let equal i j = Z.equal i j
   let compare i j = Z.compare i j
   let hash i = Z.hash i
@@ -22,6 +23,7 @@ module PrimQFBV = struct
   type t = { w : int; v : Z.t }
 
   let show (b : t) = Printf.sprintf "0x%s:bv%d" (Z.format "%x" @@ b.v) b.w
+  let to_string v = show v
   let pp fmt b = Format.pp_print_string fmt (show b)
   let hash b = HashHelper.combine (Int.hash b.w) (Z.hash b.v)
   let ones ~(size : int) = z_extract Z.minus_one 0 size

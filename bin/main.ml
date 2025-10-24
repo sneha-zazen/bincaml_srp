@@ -1,6 +1,11 @@
 open Cmdliner
+open Lang.Prog
 
-let check fname = Ocaml_of_basil.Loadir.ast_of_fname fname |> ignore
+let check fname =
+  let p = Ocaml_of_basil.Loadir.ast_of_fname fname in
+  ID.Map.iter
+    (fun _ (p : Procedure.t) -> Lang.Viscfg.Dot.output_graph stdout p.graph)
+    p.prog.procs
 
 let fname =
   let doc = "Input file name (filename.il)" in
