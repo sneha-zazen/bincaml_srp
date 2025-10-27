@@ -1,0 +1,272 @@
+
+
+# Related Work
+
+### IR
+
+The exprssion ast consists of an open recursive ADT (for use with recursion
+schemes) with generic variables, generic set primitive operations as a
+polymorphic variant.
+
+Polymorphic variants are powerful, as they allow structural extension of the IR
+language, however lead to slightly unpredictable typechecking behaviour. Hence
+for better ergonomics we restrict them to the set of operation tags in the IR.
+Unfortunately this leads to 4 generic type parameters, respectively for the set
+of constants, unary operators, binary operators, and nary operators. We hope
+that as most code is written against the fixed-point type that has all these
+instantiated it is not too much of a problem.
+
+Structure
+
+- [Recursion schemes in ocaml](https://icfp24.sigplan.org/details/ocaml-2024-papers/11/Recursion-schemes-in-OCaml-An-experience-report)
+- [A guide to recursion schemes](https://yangzhixuan.github.io/pdf/fantastic-morphisms.pdf)
+- [Code reuse through polymorphic variants](https://www.math.nagoya-u.ac.jp/~garrigue/papers/variant-reuse.pdf)
+
+Semantics
+
+- [Viper IR for separation logic](https://github.com/viperproject/silver/blob/master/documentation/syntax/sil-syntax.txt)
+  - [Experience report on viper development](https://link.springer.com/chapter/10.1007/978-3-031-98668-0_5)
+
+### Binary Static Analysers
+
+- [binsec/codex](https://github.com/codex-semantics-library/codex)
+  - Binsec/Codex paper artifact, minimal impelemntatino "TAI": https://zenodo.org/records/10895582
+  - An interesting aspect is the use of hash-consed patricia trees (tries) and global value numbering for
+  efficient map merging resulting in [this
+  library](https://ocaml.org/p/patricia-tree/), Endianneses of the key is
+  important for efficiency here, though there is a trie  in ccube/containers
+  that would be easier to use I am unsure how the endianness works out.
+
+# TODO
+
+## Basil Core
+
+To continue performing program analysis research on an ocaml-based platform
+what will we absolutely need to implement as a foundation?
+
+The IR is the most important design to get right: we choose an ocamlgraph cfg
+with statement list/block edges.
+
+It needs to provide enough to express both programs and specifications, and
+provide a precise abstraction of verification backends; i.e. so we can
+experiment with the encoding at the IR level rather than backend level. for
+reference, viper syntax:
+https://github.com/viperproject/silver/blob/master/documentation/syntax/sil-syntax.txt
+We would additionally like to generalise traversal, e.g. define a fold over the
+IR which interprets it abstractly (recursion schemes? lenses?). See also
+compiling with abstract interpretation free algebra lift functor.
+https://icfp24.sigplan.org/details/ocaml-2024-papers/11/Recursion-schemes-in-OCaml-An-experience-report
+
+We can use the existing bnfc frontend to use scalabasil as a frontend
+
+- Eventually frontend directly from gtrib_semantics and the offline lifter to
+produce a control-flow graph immediately Interpreter and core evaluation
+environment for basil: global features:
+- axioms
+- function decls (L spec), ghost procs?
+- procedures
+- rely guar spec
+- global precondition: memory initialisation before main local features:
+- procedure spec
+- loop invariants Data flow framework: based on ocamlgraph iteration
+- intraprocedural analyses + transforms
+- basic callgraph fixed point of abstracting intraproc analyses A way to
+discharge verification conditions: boogie/SMT/Why3/Kratos
+
+## Testing / Validation story
+
+I want to leverage testing from the start much more than we did in sbasil, this
+means constructing components independently with testable properties. I am
+not a fan of TDD but maybe unit tests at some point.
+
+- needs to be fast to run, and targeted at features
+- needs to prevent regressions
+- need to design so that its conducive to correctness properties; i.e. clear
+abstract model of the program generally
+
+#### Design requirements:
+
+- clear input & output representation for components i.e. IL code gen and
+consumption, good reserialisable human readable printed formats of data or
+input
+- test case generation (structured fuzzing)
+- counterexample minimization
+- regression testing framework
+- probably some kind of equivalence checking of programs as early as possible;
+interpreter, smt, etc
+
+## Formal methods
+
+- architect so that verified components can be integrated
+- consider using gospel framework to gradually verify modules, or provide more
+powerful dynamic testing on top of regular tests
+- center on DSLs that can generate both ocaml and isabelle; possible approach
+for the rewrite system similar to LEM
+   - my thinking is this avoids restricting the structure of ocaml code a lot,
+   but maybe can just codegen from isabelle
+
+# Tasks
+
+
+## Expression evaluator
+
+Function to evaluate (and possibly partially evaluate /constant-fold) basil ir
+expressions. Implementation should be straightforward based on prim.
+
+#### Validation / Testing
+
+- Property test output with smtlib:
+  - depends: smtlib encoding of expressions
+  - depends: expression generator
+
+
+## SMT encoding of expressions
+
+Implemenentation options:
+
+- cvc5, z3 libraries
+  - Probably avoid these initially cvc5 and z3 due to large compile time
+  burden, though they would be the most efficient. CVC5 bindings generally seem
+  more immature though.
+- use containserlib sexpr to generate smtlib2 and subprocess
+  - very flexible with regards to solver support
+  - requires signficiant serlialisation and IO (IO can be mitigated by writing
+  to a ramdisk and telling the solver to read from there)
+  - limited to the solver features that are implemented in SMTLib2
+- [smtml](https://formalsec.github.io/smtml/smtml/)
+  - requires an smtlib library installed
+  - supports multiple solvers if you install them
+  - extra features like simplifying rewrite systems on solvers, good
+  incremental api
+
+#### Validation / Testing
+
+- generate tautologies and check they are unsat?
+
+## IR Well-formedness checks
+
+- Implement a series of syntactic analysers to ensure the IR is a well-formed program
+
+- There are no variables **read-before initialisation**; an easy forwards worklist analysis
+- The IR is type-correct
+- The formal and actual parameter lists match up across call and returns
+- all branches are total and deterministic
+- everything is declared before use
+
+
+## Value Analysis
+
+A static analysis that assigns each variable an abstract value. For some
+abstract domain. Ideally we want a precise domain for binaries like the reduced
+product of known bits and interval.
+
+Choose any single domain to start with. This item constitutes a single value
+domain, maybe a lattice module type and a functor that produces an analysis.
+I.e. to abstract over the ocamlgraph solver. Realistically we probably don't
+initially need any structure.
+
+- Use the fpottier/fix or ocamlgraph worklist worklist solver (ocamlgrpah
+probably easier)
+- known bits related work (GPL):
+https://github.com/codex-semantics-library/codex/blob/main/domains/bitwise_domain.ml
+
+### Testing
+
+- check the soundness property (`abstract \in concrete`) using the interpreter
+for generated programs
+  - depends: expression generator
+
+## IDE Solver
+
+We want an IDE solver more sophisticated than our current solver, i.e. to
+simplify the discovery of dependencies and avoid the problems with backwards
+analyses. As a starting point we could try just port sBASIL's ide solver. We
+probably have the goal to eventually formalise and verify this in isabelle as a
+research result, and can use this to experiment, or just delay it and code
+extract the final solver.
+
+- find an efficient encoding of microfunctions
+- use ocamlgraph for phase 1 microfunction discovery ?
+- use fpottier/fix as worklist algorithm to solve phase 2 ?
+
+- implement a simple analysi
+
+- See also:
+
+## Interproc Linear-Expr propagation
+
+- depends: IDE solver
+
+- This is an efficient constant and copy-propagation simplifier, it is ideal
+for simplifying pointer-arithmetic to facilitate stack use cleanup. It can also
+be used to clean up abi constraints like call-preserved parameters by being
+interprocedural; it is advantageous to do this with one general and efficient
+analysis.
+- uses the linear expression domain:
+
+#### Validation / Testing
+
+interpreter with refinement assertions OR interprocedural translation validator
+
+- depends: whole-program interpreter
+
+## Expression Generator
+
+- utilise a property testing system to generate random expressions
+- We have to be careful of partial functinos in the IR, and to generate
+type-correct code: it would be useful therefore to have a typechecker.
+  - depends: expression type-checker
+  - depends: property testing framework
+
+## Rewrite system
+
+- It would be cool to port basil's expression rewriter as I am quite fond of
+it, we can probably leverage hashconsing to memoise the rewriter here for
+better efficiency too. BPaul also has a rewriter to simplify predicates
+
+
+### Validation
+
+- It would be interesting to pull an sexpr representation out of the basil IR
+that can generate code, this would require quantifying out the runtime
+conditions on bitvector widths to generate a version for each static set of
+widths, I think that is an ok tradeoff.
+- this sexpr can then generate ocaml code and isabelle theorems, or simply
+smtlib queries to verify its correctness
+- It would be cool to support the rewrite langauge in Ego. c.f.
+https://github.com/agle/eggomess/blob/0bd8401aae7f0b362ac9c730c0f5f07930a60414/bin/main.ml#L482-L663
+
+## SSA translation
+
+- The ir embeds an SSA structure, it would be useful to enforce this
+
+### Validation
+
+- check for violations using the reaching-definitions analysis
+  - depends: reaching definitions analysis
+
+## Loop Analysis
+
+- Via linear congruence equality domain (Mine, etc.)
+- interval analysis
+- relational analysis with TIP
+
+## Translation validator
+
+- Implementation of TACAS paper in ocaml, roughly this is decomposed into:
+
+1. Cut set transform (may be able to use [ocamlgraph](https://ocaml.org/p/ocamlgraph/2.2.0/doc/ocamlgraph/Graph/Mincut/Make/index.html#val-min_cutset)
+2. Monadic effect encoding
+  - make the call encoding simpler, just capture all global variables in the
+  program rather than doing some weird analysis
+4. Invarinat construction based on an analysis result
+5. SSA-based DAG program extration
+  - emit src and target programs as a let .. in function rather than the
+  encoding sbasil uses as its cleaner and more efficient
+
+- We should extend it to interprocedural validation, this means guarding
+ackermann instantiations by the interproc domain value, and adding the
+interproc results to invariant at beginning and return cuts
+- Should eventually include the smt incremental solver effect optimisation
+- query simplification using a copyprop etc
+- very rough reference implementation; https://github.com/ncough/tv-sanity

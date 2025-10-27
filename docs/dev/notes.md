@@ -1,6 +1,6 @@
 ## Dev notes
 
-There are three main dialects of IR we want to support - these must exist in the same textual language and be loaded 
+There are three main dialects of IR we want to support - these must exist in the same textual language and be loaded
 from the frontend.
 
 Specifically
@@ -27,7 +27,7 @@ able to write an analysis over the specific set of primitive operations that are
 what this set is.
 
 This also applies to the high level structure: the call/return structure, and control flow structure e.g. paramter lists: different statement types?
-E.g. rather than the dynamic structural invariant that every procedures in and out parametter list is empty we want an IR dialect that does not contain parameter 
+E.g. rather than the dynamic structural invariant that every procedures in and out parametter list is empty we want an IR dialect that does not contain parameter
 lists.
 
 - ocamlgraph etc make it easier to redefine the CFG with different edge types to only expose the information an analysis cares about.
@@ -36,7 +36,7 @@ lists.
   - it is crucial that it is trivial to relate a CFG back to a textual represetnation for debugging, and that this representation is stable and not (too) lossy.
 
 ```ocaml
-type 'var expr_node = private 
+type 'var expr_node = private
     | E_Var of 'var
     | E_Const of Z.t
     | E_Binop of 'var expr * binop * 'var expr
@@ -63,8 +63,8 @@ Consider a specification of strlen for information flow:
 ```
 /**
 @requires \exists n :: mem[str + n] == '\0' && \forall i:size_t :: str <= i < str + n . mem[str + i] != '\0'
-@ensures \forall n:size_t, i:size_t :: str <= i < str + n && mem[str + i] != '\0' && mem[str + n] == '\0' . str[i] == old(i) && gamma(str[i]) == old(gamma(str[i]))  
-  && str[n] == old(n) && gamma(str[n]) == old(gamma(str[n])) 
+@ensures \forall n:size_t, i:size_t :: str <= i < str + n && mem[str + i] != '\0' && mem[str + n] == '\0' . str[i] == old(i) && gamma(str[i]) == old(gamma(str[i]))
+  && str[n] == old(n) && gamma(str[n]) == old(gamma(str[n]))
 @ensures mem[str + out] = '\0' && gamma(out) = (\min i:size_t :: str <= i < str + mem . gamma(mem[str + i]))
 */
 strlen(bv64 str) -> (out:bv64) ;
@@ -82,7 +82,7 @@ but are not possible directly evaluate:
 > we would like to reuse the definitions of substitution etc to encode this specification
 
 - in some cases we would like ti to be possible to interpret this specification in static analyses
-  - the current case is an interproc copyprop analysis may want to keep unneeded paramters that can be inlined 
+  - the current case is an interproc copyprop analysis may want to keep unneeded paramters that can be inlined
     (e.g those which are constants) so it is possible to prove a specification about them later, or discharge the proof immediately.
     - this means at least sharing the variable representation so free variables are compatible.
 
@@ -91,7 +91,7 @@ but are not possible directly evaluate:
 Currently basil specifications look like:
 
 ```
-Globals: 
+Globals:
 z: bv32
 x: bv32
 secret: bv32
@@ -101,7 +101,7 @@ Rely: old(Gamma_x) ==> Gamma_x, old(z) == 1bv32 ==> z == old(z)
 Guarantee: old(z) == 2bv32 ==> old(z) == z && old(x) == x
 ```
 
-This is fairly abstract and is re-interpreted with different binaries and different structures. 
+This is fairly abstract and is re-interpreted with different binaries and different structures.
 
 - You can write `R0` to refer to registers, the parameter analysis then rewrites thesee along with the analysis so they continue to match the IR representation
 - `x`, `z` are global variables which get lowered to pure memory accesses in specification and assertions driven by the symbol table, they are also given a different
