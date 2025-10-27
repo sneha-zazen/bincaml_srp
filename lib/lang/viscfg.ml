@@ -1,7 +1,16 @@
 open Prog
 open Containers
 
-module Dot = Graph.Graphviz.Dot (struct
+module type Labelling = sig
+  val labelling : Procedure.Vert.t -> string option
+end
+
+module type ProcPrinter = sig
+  val fprint_graph : Format.formatter -> Procedure.G.t -> unit
+  val output_graph : out_channel -> Procedure.G.t -> unit
+end
+
+module Make (L : Labelling) = Graph.Graphviz.Dot (struct
   open Procedure
   include G
   include Graph.Pack
@@ -38,14 +47,39 @@ module Dot = Graph.Graphviz.Dot (struct
 
   let default_edge_attributes _ = []
   let get_subgraph _ = None
-  let vertex_attributes _ = [ `Shape `Box ]
 
   let vertex_name (v : Vert.t) =
     let open Vert in
-    match v with
-    | Begin v -> Printf.sprintf "beg%d" v
-    | End v -> Printf.sprintf "end%d" v
+    let n =
+      match v with
+      | Begin v -> Printf.sprintf "beg%d" v
+      | End v -> Printf.sprintf "end%d" v
+      | Entry -> "entry"
+      | Exit -> "exit"
+      | Return -> "return"
+    in
+    n
+
+  let vertex_attributes v =
+    let n = vertex_name v in
+    let l =
+      match L.labelling v with
+      | Some x ->
+          let l = n ^ "\\l :     " ^ x ^ "\\l" in
+          [ `Label l ]
+      | _ -> []
+    in
+    [ `Shape `Box; `Fontname "Mono" ] @ l
 
   let default_vertex_attributes _ = []
   let graph_attributes _ = []
+end)
+
+let dot_labels label_fun =
+  (module Make (struct
+    let labelling = label_fun
+  end) : ProcPrinter)
+
+module Dot = Make (struct
+  let labelling v = None
 end)

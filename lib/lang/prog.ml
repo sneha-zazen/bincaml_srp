@@ -9,10 +9,10 @@ module ID = struct
   module Map = Map.Make (Int)
 
   module Named = struct
-    (* generator for unique integer identifiers with an optionally associated name. 
+    (* generator for unique integer identifiers with an optionally associated name.
        maintains a mapping between id and name.
 
-       note: ID.t is the canonical identifier, 
+       note: ID.t is the canonical identifier,
         with the associated name assumed to be unique with respect to it.
        *)
     module M = CCBijection.Make (String) (Int)
@@ -97,7 +97,7 @@ module Stmt = struct
         procid : ID.t;
         args : 'expr Params.M.t;
       }
-    | Instr_Return of { args : Params.actual }
+    | Instr_Return of { args : 'expr Params.M.t }
     | Instr_IntrinCall of {
         lhs : 'lvar Params.M.t;
         name : string;
@@ -160,7 +160,7 @@ module Stmt = struct
         "store_" ^ show_endian endian ^ " " ^ addr ^ " " ^ value
     | Instr_Call { lhs; procid; args } ->
         param_list lhs ^ " := call " ^ param_list args
-    | Instr_Return { args } -> "return " ^ Params.show_actual args
+    | Instr_Return { args } -> "return " ^ param_list args
     | Instr_IntrinCall { lhs; name; args } ->
         param_list lhs ^ " := call " ^ name ^ param_list args
     | Instr_IndirectCall { target } -> "indirect_call " ^ target
@@ -200,12 +200,19 @@ module Procedure = struct
   type ident = Proc of int [@@unboxed]
 
   module Vert = struct
-    type t = Begin of ID.t | End of ID.t
+    type t = Begin of ID.t | End of ID.t | Entry | Return | Exit
     [@@deriving show { with_path = false }, eq, ord]
 
     let hash (v : t) =
       let h = Hash.pair Hash.int Hash.int in
-      Hash.map (function Begin i -> (31, i) | End i -> (37, i)) h v
+      Hash.map
+        (function
+          | Entry -> (1, 1)
+          | Return -> (3, 1)
+          | Exit -> (5, 1)
+          | Begin i -> (31, i)
+          | End i -> (37, i))
+        h v
   end
 
   module Edge = struct
@@ -245,6 +252,10 @@ module Procedure = struct
       ?(captures_globs = Var.Decls.empty ())
       ?(modifies_globs = Var.Decls.empty ()) ?(requires = []) ?(ensures = [])
       ?(locals = Var.Decls.empty ()) ?(blocks = Vector.create ()) () =
+    let graph = G.create () in
+    G.add_vertex graph Entry;
+    G.add_vertex graph Exit;
+    G.add_vertex graph Return;
     {
       id;
       formal_in_params;
@@ -253,8 +264,8 @@ module Procedure = struct
       modifies_globs;
       requires;
       ensures;
+      graph;
       locals;
-      graph = G.create ();
       gensym = Fix.Gensym.make ();
       gensym_bloc = Fix.Gensym.make ();
     }
@@ -278,6 +289,14 @@ module Procedure = struct
     G.add_edge_e p.graph (Begin id, b, End id);
     List.iter ~f:(fun i -> G.add_edge p.graph (End id) (Begin i)) successors;
     id
+
+  let get_entry_block p id =
+    let open Edge in
+    let open G in
+    try
+      let id = G.find_edge p.graph Entry (Begin id) in
+      Some id
+    with Not_found -> None
 
   let get_block p id =
     let open Edge in

@@ -78,6 +78,8 @@ module type Fix = sig
   type intrin
   type t
 
+  module Var : HASH_TYPE with type t = var
+
   val fix : (const, var, unary, binary, intrin, t) AbstractExpr.t -> t
   val unfix : t -> (const, var, unary, binary, intrin, t) AbstractExpr.t
 end
@@ -149,6 +151,42 @@ module Recursion (O : Fix) = struct
   let identity x = x
   let applyintrin ~op params = fix (ApplyIntrin (op, params))
   let apply_fun ~name params = fix (ApplyFun (name, params))
+
+  (**helpers**)
+
+  module VarSet = Set.Make (Var)
+
+  (* substite variables for expressions *)
+  let substitute (sub : var -> t option) (e : t) =
+    let open AbstractExpr in
+    let binding acc e =
+      match e with
+      | Binding (b, e) -> VarSet.union acc (VarSet.of_list b)
+      | o -> acc
+    in
+    let subst binding orig =
+      match orig with
+      | RVar e when VarSet.find_opt e binding |> Option.is_none -> (
+          match sub e with Some r -> r | None -> fix orig)
+      | o -> fix o
+    in
+    map_fold ~f:binding ~alg:subst VarSet.empty e
+
+  (* get free vars of exprs *)
+  let free_vars (e : t) =
+    let open AbstractExpr in
+    let alg e =
+      match e with
+      | RVar e -> VarSet.singleton e
+      | Binding (b, e) -> VarSet.diff e (VarSet.of_list b)
+      | o -> fold (fun acc a -> VarSet.union a acc) VarSet.empty o
+    in
+    cata alg e
+
+  (* get list of child expressions *)
+  let children e = cata Alges.children_alg e
+
+  (** tests **)
 end
 
 module BasilExpr = struct
@@ -187,7 +225,12 @@ module BasilExpr = struct
   end
 
   include E
-  module R = Recursion (E)
+
+  module R = Recursion (struct
+    include E
+    module Var = Var
+  end)
+
   include R
 
   (* printers *)

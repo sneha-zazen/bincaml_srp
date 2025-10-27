@@ -4,7 +4,8 @@ open Lang.Prog
 let check fname =
   let p = Ocaml_of_basil.Loadir.ast_of_fname fname in
   ID.Map.iter
-    (fun _ (p : Procedure.t) -> Lang.Viscfg.Dot.output_graph stdout p.graph)
+    (fun _ (p : Procedure.t) ->
+      Lang.Livevars.print_live_vars_dot Format.std_formatter p)
     p.prog.procs
 
 let fname =

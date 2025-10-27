@@ -133,6 +133,7 @@ Implemenentation options:
 - all branches are total and deterministic
 - everything is declared before use
 - reaching definitions analysis
+- entry vert has no predecessors
 
 ## Value Analysis
 
