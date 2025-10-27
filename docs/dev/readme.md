@@ -38,7 +38,16 @@ Semantics
   important for efficiency here, though there is a trie  in ccube/containers
   that would be easier to use I am unsure how the endianness works out.
 - [why3 inference](https://gitlab.inria.fr/why3/why3/-/tree/master/src/infer?ref_type=heads) (GPL)
--
+
+OCaml engineering
+
+- Some gospel-verified ocaml algorithms:
+  - [cameleer/examples](https://github.com/ocaml-gospel/cameleer/tree/master/examples)
+  - [vocal](https://github.com/ocaml-gospel/vocal/tree/main)
+  - There are useful things like queues and union-find, which have been used in other tools, this provides
+    at least some argument for a minimal trust base. E.g. [pqueue usedin in miou scheduler](https://github.com/robur-coop/miou/blob/main/lib/miou_pqueue.ml)
+- [What is CPS (discuss)](https://discuss.ocaml.org/t/what-is-the-use-of-continuation-passing-style-cps/4491/11)
+- [Optimising state monad (discuss)](https://discuss.ocaml.org/t/can-a-state-monad-be-optimized-out-with-flambda/9841/5)
 
 # TODO
 
