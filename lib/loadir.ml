@@ -21,7 +21,7 @@ type textRange = (int * int) option [@@deriving show { with_path = false }, eq]
 module BasilASTLoader = struct
   open BasilIR.AbsBasilIR
 
-  type loaded_lock =
+  type loaded_block =
     | LBlock of
         (string
         * Program.stmt list
@@ -108,7 +108,6 @@ module BasilASTLoader = struct
           spec_list,
           ProcDef_Some (bl, blocks, el) ) ->
         let proc_id = prog.prog.proc_names.fresh ~name:id () in
-
         let formal_in_params_order = List.map param_to_formal in_params in
         let formal_in_params = formal_in_params_order |> Params.M.of_list in
         let formal_out_params_order = List.map param_to_formal out_params in
@@ -137,40 +136,41 @@ module BasilASTLoader = struct
         let blocks = List.map (trans_block prog) blocks in
         let proc_id = prog.prog.proc_names.get_id id in
         let p = ID.Map.find proc_id prog.prog.procs in
+        let open Procedure.Vert in
         let formal_out_params_order = List.map param_to_formal out_params in
         (* add blocks *)
         let blocks_id =
           List.map
             (function
               | LBlock (name, stmts, succ) ->
-                  let ns =
-                    match succ with
-                    | `Return exprs ->
-                        let args =
-                          List.combine formal_out_params_order exprs
-                          |> List.map (function (name, var), expr ->
-                                 (name, expr))
-                          |> Params.M.of_list
-                        in
-                        [ Stmt.(Instr_Return { args }) ]
-                    | _ -> []
-                  in
-                  let stmts = stmts @ ns in
+                  let stmts = stmts in
                   (name, Procedure.fresh_block p ~stmts ()))
             blocks
-          |> StringMap.of_list
         in
+        let block_label_id = StringMap.of_list blocks_id in
+        Option.iter
+          (fun (_, entry) -> Procedure.G.add_edge p.graph Entry (Begin entry))
+          (List.head_opt blocks_id);
+
         (* add intraproc edges*)
         List.iter
           (function
             | LBlock (name, _, succ) -> (
                 match succ with
                 | `Goto tgts ->
-                    let f = StringMap.find name blocks_id in
+                    let f = StringMap.find name block_label_id in
                     let succ =
-                      List.map (fun c -> StringMap.find c blocks_id) tgts
+                      List.map (fun c -> StringMap.find c block_label_id) tgts
                     in
                     Procedure.add_goto p ~from:f ~targets:succ
+                | `Return exprs ->
+                    let args =
+                      List.combine formal_out_params_order exprs
+                      |> List.map (function (name, var), expr -> (name, expr))
+                      |> Params.M.of_list
+                    in
+                    let f = StringMap.find name block_label_id in
+                    Procedure.add_return p ~from:f ~args
                 | _ -> ()))
           blocks;
         prog

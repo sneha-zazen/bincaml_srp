@@ -290,6 +290,15 @@ module Procedure = struct
     List.iter ~f:(fun i -> G.add_edge p.graph (End id) (Begin i)) successors;
     id
 
+  let add_return p ~(from : ID.t) ~(args : BasilExpr.t Params.M.t) =
+    let open Vert in
+    let fr = End from in
+    let id = p.gensym_bloc () in
+    let b =
+      Edge.(Block { id; phis = []; stmts = [ Stmt.Instr_Return { args } ] })
+    in
+    G.add_edge_e p.graph (fr, b, Return)
+
   let get_entry_block p id =
     let open Edge in
     let open G in
