@@ -9,6 +9,7 @@ let z_signed_extract = checked_extract Z.signed_extract
 module PrimInt = struct
   type t = Z.t
 
+  let typ i = Types.BType.Integer
   let pp = Z.pp_print
   let show i = Z.to_string i
   let to_string i = show i
@@ -22,11 +23,12 @@ module PrimQFBV = struct
 
   type t = { w : int; v : Z.t }
 
+  let typ i = Types.BType.Bitvector i.w
   let show (b : t) = Printf.sprintf "0x%s:bv%d" (Z.format "%x" @@ b.v) b.w
   let to_string v = show v
   let pp fmt b = Format.pp_print_string fmt (show b)
   let hash b = HashHelper.combine (Int.hash b.w) (Z.hash b.v)
-  let ones ~(size : int) = z_extract Z.minus_one 0 size
+  let ones ~(size : int) = { w = size; v = z_extract Z.minus_one 0 size }
   let zero ~(size : int) = { w = size; v = Z.zero }
   let empty = zero ~size:0
   let is_zero b = Z.equal Z.zero b.v
@@ -137,28 +139,4 @@ module PrimQFBV = struct
 
   let repeat_bits ~(copies : int) a =
     List.init copies (fun _ -> a) |> List.fold_left concat empty
-end
-
-module BValue = struct
-  type t =
-    | Integer of PrimInt.t
-    | Bitvector of PrimQFBV.t
-    | Boolean of bool
-    | Unit
-  [@@deriving show, eq]
-
-  let show = function
-    | Integer i -> PrimInt.show i
-    | Bitvector i -> PrimQFBV.show i
-    | Boolean i -> Format.to_string Bool.pp i
-    | Unit -> "()"
-
-  let hash a =
-    let open HashHelper in
-    match a with
-    | Integer i -> combine 2 (PrimInt.hash i)
-    | Bitvector b -> combine 3 (PrimQFBV.hash b)
-    | Boolean true -> combine 5 1
-    | Boolean false -> combine 7 2
-    | Unit as u -> Hashtbl.hash u
 end

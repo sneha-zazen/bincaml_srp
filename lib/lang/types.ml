@@ -53,7 +53,10 @@ module BType = struct
     | Map (l, ts) -> curry ~acc:(l :: acc) ts
     | l -> (List.rev acc, l)
 
-  let uncurry (args : t list) (v : t) = List.fold_left (fun a p -> Map (a, p)) v
+  let uncurry (args : t list) (v : t) =
+    match args with
+    | h :: tl -> List.fold_left (fun a p -> Map (a, p)) h tl
+    | [] -> v
 
   let rec to_string = function
     | Boolean -> "bool"

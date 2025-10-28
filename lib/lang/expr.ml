@@ -88,6 +88,9 @@ module Recursion (O : Fix) = struct
   open Fun.Infix
   open O
 
+  type 'e abstract_expr =
+    (const, Var.t, unary, binary, intrin, 'e) AbstractExpr.t
+
   (** Recursion schemes on AbstractExpr.t for a given fix point type.
 
       See:
@@ -126,18 +129,32 @@ module Recursion (O : Fix) = struct
 
   (* zygomorphism;
 
-     Perform two recursion simultaneously, passing the result of the second to the first.
+     Perform two recursion simultaneously, passing the result of the first to the second
      *)
-  let rec zygo alg1 alg2 = fst (mutu alg1 (AbstractExpr.map snd %> alg2))
+  let rec zygo alg1 alg2 e = snd (mutu (AbstractExpr.map fst %> alg1) alg2) e
+  let rec zygo_l alg2 alg1 = fst (mutu alg1 (AbstractExpr.map snd %> alg2))
+
+  let map_fold2 ~f ~alg1 ~alg2 r e =
+    let alg r x = (alg1 r x, alg2 (AbstractExpr.map snd x)) in
+    fst (fst % map_fold ~f ~alg r, snd % map_fold ~f ~alg r) e
+
+  let rec map_fixed_fold ~alg e =
+    (unfix %> (AbstractExpr.map (map_fixed_fold ~alg) %> alg e)) e
+
+  (** for defining rewrites to part of an expression, passes the original fixed
+      expression to the algebra to efficiently noop *)
+  let map_fixed_fold2 ~alg1 ~alg2 e =
+    let alg r x = (alg1 r x, alg2 (AbstractExpr.map snd x)) in
+    fst (fst % map_fixed_fold ~alg, snd % map_fixed_fold ~alg) e
 
   (*
     catamorphism that also passes the original expression through
   *)
-  let rec para alg f e =
+  let rec para_f alg f e =
     let p f g x = (f x, g x) in
-    (alg % AbstractExpr.map (p f (para alg f)) % unfix) e
+    (alg % AbstractExpr.map (p f (para_f alg f)) % unfix) e
 
-  let para alg e = para alg identity e
+  let para alg e = para_f alg identity e
 
   (**smart constructors **)
 
@@ -190,6 +207,8 @@ module Recursion (O : Fix) = struct
 end
 
 module BasilExpr = struct
+  open AllOps
+
   module E = struct
     include AllOps
 
@@ -250,17 +269,34 @@ module BasilExpr = struct
   let to_string s = cata print_alg s
   let pp fmt s = Format.pp_print_string fmt @@ to_string s
 
+  let type_alg (e : Types.BType.t abstract_expr) =
+    let open AbstractExpr in
+    let open Ops.AllOps in
+    let get_ty o =
+      match o with Fun { ret } -> ret | _ -> failwith "type error"
+    in
+    match e with
+    | RVar r -> Var.typ r
+    | Constant op -> ret_type_const op |> get_ty
+    | UnaryExpr (op, a) -> ret_type_unary op a |> get_ty
+    | BinaryExpr (op, l, r) -> ret_type_bin op l r |> get_ty
+    | ApplyIntrin (op, args) -> ret_type_intrin op args |> get_ty
+    | ApplyFun (a, b) -> Types.BType.Top
+    | Binding (vars, b) -> Types.BType.uncurry (List.map Var.typ vars) b
+
+  let type_of e = cata type_alg e
+  let fold_with_type (alg : 'e abstract_expr -> 'a) = zygo_l type_alg alg
+
   (* constructor helpers *)
   let intconst (v : PrimInt.t) : t = const (`Integer v)
   let boolconst (v : bool) : t = const (`Bool v)
   let bvconst (v : PrimQFBV.t) : t = const (`Bitvector v)
-  let load_expr (mem : Var.t) index : t = binexp ~op:`MapIndex (rvar mem) index
 
   let zero_extend ~n_prefix_bits (e : t) : t =
-    applyintrin ~op:(`ZeroExtend n_prefix_bits) [ e ]
+    unexp ~op:(`ZeroExtend n_prefix_bits) e
 
   let sign_extend ~n_prefix_bits (e : t) : t =
-    applyintrin ~op:(`SignExtend n_prefix_bits) [ e ]
+    unexp ~op:(`SignExtend n_prefix_bits) e
 
   let extract ~hi_incl ~lo_excl (e : t) : t =
     applyintrin ~op:(`Extract (hi_incl, lo_excl)) [ e ]

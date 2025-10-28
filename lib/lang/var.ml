@@ -32,6 +32,8 @@ let equal (a : t) (b : t) = Fix.HashCons.equal a b
 let hash (a : t) = Fix.HashCons.hash a
 
 module Set = CCHashSet.Make (V)
+(**FIXME: these do not use the hash-consign*)
+
 module Bindings = CCHashTrie.Make (V)
 
 module Decls = struct
