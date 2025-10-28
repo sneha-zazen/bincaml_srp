@@ -11,6 +11,9 @@
 
 (maintainers "Maintainer Name <maintainer@example.com>")
 
+(formatting
+ (enabled_for dune))
+
 (license LICENSE)
 
 (documentation https://url/to/documentation)
