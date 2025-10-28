@@ -208,7 +208,7 @@ module BasilASTLoader = struct
           (Instr_Assign
              (assigns
              |> List.map (function Assignment1 (l, r) ->
-                    (transLVar l, trans_expr r))))
+                 (transLVar l, trans_expr r))))
     | Stmt_Load (lvar, endian, bident, expr, intval) ->
         let endian = transEndian endian in
         let mem =
@@ -302,8 +302,8 @@ module BasilASTLoader = struct
         let stmts =
           List.map (trans_stmt prog) statements
           |> List.map (function
-               | `Call c -> failwith "call in incorrect position"
-               | `Stmt c -> c)
+            | `Call c -> failwith "call in incorrect position"
+            | `Stmt c -> c)
         in
         let st, call =
           match Option.map (trans_stmt prog) last_stmt with
@@ -345,31 +345,21 @@ module BasilASTLoader = struct
         | _ -> failwith "non-associative operator")
     | Expr_Binary (binop, expr0, expr) -> (
         let op = transBinOp binop in
+        let e1 = trans_expr expr0 in
+        let e2 = trans_expr expr in
         match op with
-        | #AllOps.binary as op ->
-            BasilExpr.binexp ~op (trans_expr expr0) (trans_expr expr)
-        | #AllOps.intrin as op ->
-            BasilExpr.applyintrin ~op [ trans_expr expr0; trans_expr expr ]
-        | `BVUGT ->
-            BasilExpr.boolnot
-              (BasilExpr.binexp ~op:`BVULE (trans_expr expr0) (trans_expr expr))
-        | `BVUGE ->
-            BasilExpr.boolnot
-              (BasilExpr.binexp ~op:`BVULT (trans_expr expr0) (trans_expr expr))
-        | `BVSGT ->
-            BasilExpr.boolnot
-              (BasilExpr.binexp ~op:`BVSLE (trans_expr expr0) (trans_expr expr))
-        | `BVSGE ->
-            BasilExpr.boolnot
-              (BasilExpr.binexp ~op:`BVSLT (trans_expr expr0) (trans_expr expr))
-        | `BVXNOR ->
-            BasilExpr.boolnot
-              (BasilExpr.binexp ~op:`BVXOR (trans_expr expr0) (trans_expr expr))
-        | `BVNOR ->
-            BasilExpr.boolnot
-              (BasilExpr.binexp ~op:`BVOR (trans_expr expr0) (trans_expr expr))
-        | `INTGT -> failwith "usupported up : intgt"
-        | `INTGE -> failwith "unsupported op: intge")
+        | #AllOps.binary as op -> BasilExpr.binexp ~op e1 e2
+        | #AllOps.intrin as op -> BasilExpr.applyintrin ~op [ e1; e2 ]
+        | `BVUGT -> BasilExpr.boolnot (BasilExpr.binexp ~op:`BVULE e1 e2)
+        | `BVUGE -> BasilExpr.boolnot (BasilExpr.binexp ~op:`BVULT e1 e2)
+        | `BVSGT -> BasilExpr.boolnot (BasilExpr.binexp ~op:`BVSLE e1 e2)
+        | `BVSGE -> BasilExpr.boolnot (BasilExpr.binexp ~op:`BVSLT e1 e2)
+        | `BVXNOR -> BasilExpr.boolnot (BasilExpr.binexp ~op:`BVXOR e1 e2)
+        | `BVNOR -> BasilExpr.boolnot (BasilExpr.binexp ~op:`BVOR e1 e2)
+        | `BVCOMP ->
+            BasilExpr.unexp ~op:`BOOL2BV1 (BasilExpr.binexp ~op:`EQ e1 e2)
+        | `INTGE -> BasilExpr.boolnot (BasilExpr.binexp ~op:`INTLT e1 e2)
+        | `INTGT -> BasilExpr.boolnot (BasilExpr.binexp ~op:`INTLE e1 e2))
     | Expr_Unary (unop, expr) ->
         BasilExpr.unexp ~op:(transUnOp unop) (trans_expr expr)
     | Expr_ZeroExtend (intval, expr) ->

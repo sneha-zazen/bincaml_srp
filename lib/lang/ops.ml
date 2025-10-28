@@ -112,7 +112,6 @@ module BVOps = struct
     | `BVLSHR
     | `BVNAND
     | `BVXOR
-    | `BVCOMP
     | `BVSUB
     | `BVSDIV
     | `BVSREM
@@ -126,7 +125,6 @@ module BVOps = struct
     match op with
     | `BVSREM -> srem
     | `BVSDIV -> sdiv
-    | `BVCOMP -> fun a b -> if equal a b then true_bv else false_bv
     | `BVADD -> add
     | `BVASHR -> ashr
     | `BVSMOD -> failwith "unimplemnted"
@@ -264,8 +262,7 @@ module AllOps = struct
         return Boolean
     | `INTDIV | `INTADD | `INTMUL | `INTSUB | `INTMOD -> return Integer
     | `BVAND | `BVOR | `BVADD | `BVMUL | `BVUDIV | `BVUREM | `BVSHL | `BVLSHR
-    | `BVNAND | `BVXOR | `BVCOMP | `BVSUB | `BVSDIV | `BVSREM | `BVSMOD
-    | `BVASHR ->
+    | `BVNAND | `BVXOR | `BVSUB | `BVSDIV | `BVSREM | `BVSMOD | `BVASHR ->
         return l
     | `BVConcat -> (
         match (l, r) with
@@ -291,7 +288,6 @@ module AllOps = struct
     | `BVSREM -> "bvsrem"
     | `BVSDIV -> "bvsdiv"
     | `Forall -> "forall"
-    | `BVCOMP -> "bvcomp"
     | `BVNEG -> "bvneg"
     | `Bool true -> "true"
     | `Bool false -> "false"
