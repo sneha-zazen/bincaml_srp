@@ -292,6 +292,9 @@ module BasilExpr = struct
   let boolconst (v : bool) : t = const (`Bool v)
   let bvconst (v : PrimQFBV.t) : t = const (`Bitvector v)
 
+  let bv_of_int ~(width : int) (v : int) : t =
+    const (`Bitvector (PrimQFBV.of_int ~width v))
+
   let rewrite ~(rw_fun : t abstract_expr -> t option) (expr : t) =
     let rw_alg e =
       let orig s = fix s in
@@ -337,5 +340,5 @@ module BasilExpr = struct
   let concat (e : t) (f : t) : t = binexp ~op:`BVConcat e f
   let forall ~bound p = unexp ~op:`Forall (binding bound p)
   let exists ~bound p = unexp ~op:`Exists (binding bound p)
-  let boolnot e = unexp ~op:`NOT e
+  let boolnot e = unexp ~op:`BoolNOT e
 end

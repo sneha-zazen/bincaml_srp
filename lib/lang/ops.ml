@@ -18,7 +18,7 @@ module LogicalOps = struct
   type const = [ `Bool of bool ]
   [@@deriving show { with_path = false }, eq, ord]
 
-  type unary = [ `NOT ] [@@deriving show { with_path = false }, eq, ord]
+  type unary = [ `BoolNOT ] [@@deriving show { with_path = false }, eq, ord]
 
   type binary = [ `EQ | `NEQ | `IMPLIES ]
   [@@deriving show { with_path = false }, eq, ord]
@@ -31,7 +31,7 @@ module LogicalOps = struct
     | #binary as b -> show_binary b
 
   let eval_const = function `Bool b -> b
-  let eval_unary op = match op with `NOT -> not
+  let eval_unary op = match op with `BoolNOT -> not
 
   let eval_binary (op : binary) =
     match op with
@@ -249,7 +249,7 @@ module AllOps = struct
     | `BVNEG -> return a
     | `INTNEG -> return Integer
     | `Old -> return a
-    | `NOT -> return Boolean
+    | `BoolNOT -> return Boolean
     | `Exists -> return Boolean
     | `BVNOT -> return a
     | `BOOL2BV1 -> return @@ Bitvector 1
@@ -333,7 +333,7 @@ module AllOps = struct
     | `INTSUB -> "intsub"
     | `BVULE -> "bvule"
     | `BOOL2BV1 -> "bool2bv1"
-    | `NOT -> "not"
+    | `BoolNOT -> "not"
     | `BVSLT -> "bvslt"
 
   let eval_equal (a : const) (b : const) =

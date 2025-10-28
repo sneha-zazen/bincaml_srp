@@ -351,22 +351,22 @@ module BasilASTLoader = struct
         | #AllOps.intrin as op ->
             BasilExpr.applyintrin ~op [ trans_expr expr0; trans_expr expr ]
         | `BVUGT ->
-            BasilExpr.unexp ~op:`NOT
+            BasilExpr.boolnot
               (BasilExpr.binexp ~op:`BVULE (trans_expr expr0) (trans_expr expr))
         | `BVUGE ->
-            BasilExpr.unexp ~op:`NOT
+            BasilExpr.boolnot
               (BasilExpr.binexp ~op:`BVULT (trans_expr expr0) (trans_expr expr))
         | `BVSGT ->
-            BasilExpr.unexp ~op:`NOT
+            BasilExpr.boolnot
               (BasilExpr.binexp ~op:`BVSLE (trans_expr expr0) (trans_expr expr))
         | `BVSGE ->
-            BasilExpr.unexp ~op:`NOT
+            BasilExpr.boolnot
               (BasilExpr.binexp ~op:`BVSLT (trans_expr expr0) (trans_expr expr))
         | `BVXNOR ->
-            BasilExpr.unexp ~op:`NOT
+            BasilExpr.boolnot
               (BasilExpr.binexp ~op:`BVXOR (trans_expr expr0) (trans_expr expr))
         | `BVNOR ->
-            BasilExpr.unexp ~op:`NOT
+            BasilExpr.boolnot
               (BasilExpr.binexp ~op:`BVOR (trans_expr expr0) (trans_expr expr))
         | `INTGT -> failwith "usupported up : intgt"
         | `INTGE -> failwith "unsupported op: intge")
@@ -418,7 +418,7 @@ module BasilASTLoader = struct
   and transUnOp (x : BasilIR.AbsBasilIR.unOp) =
     match x with
     | UnOpBVUnOp bvunop -> transBVUnOp bvunop
-    | UnOp_boolnot -> `NOT
+    | UnOp_boolnot -> `BoolNOT
     | UnOp_intneg -> `INTNEG
     | UnOp_booltobv1 -> `BOOL2BV1
 

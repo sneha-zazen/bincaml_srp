@@ -3,7 +3,7 @@ open Value
 open Ops
 open Containers
 
-let eval_expr (e : Ops.AllOps.const option BasilExpr.abstract_expr) =
+let eval_expr_alg (e : Ops.AllOps.const option BasilExpr.abstract_expr) =
   let open AbstractExpr in
   let open Value in
   let bool e = Some (`Bool e) in
@@ -46,7 +46,8 @@ let eval_expr (e : Ops.AllOps.const option BasilExpr.abstract_expr) =
   | ApplyIntrin ((#BVOps.intrin as op), args) ->
       let* args = all_args get_bv args in
       Some (bv (BVOps.eval_intrin op args))
-  | UnaryExpr (`NOT, b) -> get_bv b >|= PrimQFBV.bitnot >|= bv
+  | UnaryExpr ((#LogicalOps.unary as op), b) ->
+      get_bool b >|= LogicalOps.eval_unary op >>= bool
   | UnaryExpr (`Forall, b) -> None
   | UnaryExpr (`Old, b) -> None
   | UnaryExpr (`Exists, b) -> None
@@ -69,3 +70,46 @@ let eval_expr (e : Ops.AllOps.const option BasilExpr.abstract_expr) =
       bool @@ LogicalOps.eval_intrin op args
   | ApplyFun _ -> None
   | Binding _ -> None
+
+let partial_eval_alg (e : BasilExpr.t BasilExpr.abstract_expr) :
+    BasilExpr.t option =
+  let open AbstractExpr in
+  let open Option.Infix in
+  let is_const e =
+    match BasilExpr.unfix e with Constant e -> Some e | _ -> None
+  in
+  let e = AbstractExpr.map is_const e in
+  eval_expr_alg e >|= BasilExpr.const
+
+let partial_eval_expr e = BasilExpr.rewrite ~rw_fun:partial_eval_alg e
+let eval_expr e = BasilExpr.cata eval_expr_alg e
+
+let%expect_test _ =
+  let open BasilExpr in
+  let e = binexp ~op:`BVMUL (bv_of_int ~width:10 10) (bv_of_int ~width:10 10) in
+  print_endline (to_string e);
+  let r =
+    eval_expr e |> Option.map const |> Option.map to_string |> function
+    | Some e -> e
+    | None -> "none"
+  in
+  print_endline r;
+  [%expect {|
+    bvmul(0xa:bv10, 0xa:bv10)
+    0x64:bv10 |}]
+
+let%expect_test _ =
+  let open BasilExpr in
+  let ten = bv_of_int ~width:10 10 in
+  let e =
+    binexp ~op:`BVMUL
+      (binexp ~op:`BVADD ten ten)
+      (BasilExpr.rvar (Var.create "beans" Types.BType.(Bitvector 10)))
+  in
+  print_endline (to_string e);
+  let r = to_string @@ partial_eval_expr e in
+  print_endline r;
+  [%expect
+    {|
+    bvmul(bvadd(0xa:bv10, 0xa:bv10), beans:bv10)
+    bvmul(0xa:bv10, beans:bv10) |}]
