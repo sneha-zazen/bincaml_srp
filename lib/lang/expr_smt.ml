@@ -4,7 +4,7 @@ open CCSexp
 open Value
 
 module SMTLib2 = struct
-  type logic = Int | Prop | BV | Array | DT [@@deriving ord]
+  type logic = UF | Int | Prop | BV | Array | DT [@@deriving ord]
 
   module LSet = Set.Make (struct
     type t = logic
@@ -17,21 +17,36 @@ module SMTLib2 = struct
   type var_decl = { decl_cmd : CCSexp.t; var : CCSexp.t }
 
   type builder = {
+    preamble : CCSexp.t list;
     commands : CCSexp.t list;
     var_decls : var_decl VMap.t;
     logics : LSet.t;
   }
 
-  let init = { commands = []; var_decls = VMap.empty; logics = LSet.empty }
+  let init =
+    {
+      preamble = [];
+      commands = [];
+      var_decls = VMap.empty;
+      logics = LSet.empty;
+    }
 
   type 'e t = builder -> 'e * builder
+
+  let get_logic_string (l : LSet.t) =
+    let get_part f = LSet.find_first_map f l |> Option.get_or ~default:"" in
+    let bv = get_part (function BV -> Some "BV" | _ -> None) in
+    let lia = get_part (function Int -> Some "LIA" | _ -> None) in
+    let arr = get_part (function Array -> Some "A" | _ -> None) in
+    let dt = get_part (function DT -> Some "DT" | _ -> None) in
+    "QF_" ^ arr ^ bv ^ lia ^ dt
 
   let return e = fun s -> (e, s)
 
   let get (e : 'a t) =
    fun s ->
     let v, s = e s in
-    s
+    (s, s)
 
   let bind (t : 'f t) (f : 'a -> 'g t) s =
     let v, s = t s in
@@ -39,6 +54,7 @@ module SMTLib2 = struct
     (bv, bs)
 
   let ( let* ) = bind
+  let ( >>= ) = bind
 
   let sequence (args : 'a t list) : 'a list t =
     List.fold_left
@@ -47,6 +63,22 @@ module SMTLib2 = struct
         let* i = i in
         return (i :: a))
       (return []) args
+
+  let add_assert (v : Sexp.t) (s : builder) =
+    let asrt = list [ atom "assert"; v ] in
+    (asrt, { s with commands = asrt :: s.commands })
+
+  let add_preamble_assert (v : Sexp.t) (s : builder) =
+    (v, { s with preamble = v :: s.preamble })
+
+  let extract (s : 'a t) =
+    let* b = get s in
+    let open Iter.Infix in
+    let logic = list [ atom "set-logic"; atom (get_logic_string b.logics) ] in
+    let preamble = List.to_iter (logic :: b.preamble) in
+    let decls = VMap.to_iter b.var_decls >|= fun (v, d) -> d.decl_cmd in
+    let commands = List.to_iter b.commands in
+    return (preamble <+> decls <+> commands)
 
   let rec of_typ (ty : Types.BType.t) =
     match ty with
@@ -64,12 +96,23 @@ module SMTLib2 = struct
         let log = LSet.union (LSet.singleton Array) (LSet.union ll lr) in
         (list [ atom "Array"; tl; tr ], log)
 
+  let add_logic l s = ((), { s with logics = LSet.add l s.logics })
+
   let gen_decl v =
     let n = Var.name v in
     let ty = Var.typ v in
     let ty, logics = of_typ ty in
     let v = atom n in
     ({ decl_cmd = list [ atom "declare-const"; v; ty ]; var = v }, logics)
+
+  let add_logic_const (v : Ops.AllOps.const) =
+    let* _ =
+      match v with
+      | `Bitvector _ -> add_logic BV
+      | `Integer _ -> add_logic Int
+      | `Bool _ -> return ()
+    in
+    return v
 
   let decl_var (v : Var.t) s =
     VMap.find_opt v s.var_decls |> function
@@ -107,10 +150,6 @@ module SMTLib2 = struct
         | _ -> failwith "type error")
     | o -> orig o
 
-  (* TODO: Factor this out into BasilExpr; it might be better to structure this more; since we are doing type-inference
-     along the way maybe it makes sense to check the substituted expression is type-correct for its context?
-     ALSO really need to factor out the identity function on each subexpr.
-  *)
   let rewrite_smt_constructs (e : BasilExpr.t) : BasilExpr.t =
     BasilExpr.fold_with_type replace_unsupp_ops_alg e
 
@@ -139,7 +178,9 @@ module SMTLib2 = struct
 
   let smt_alg (e : sexp t BasilExpr.abstract_expr) =
     match e with
-    | Constant o -> return (of_op o)
+    | Constant o ->
+        let* o = add_logic_const o in
+        return (of_op o)
     | RVar e -> get_var e
     | UnaryExpr (o, e) ->
         let* e = e in
@@ -163,6 +204,16 @@ module SMTLib2 = struct
     let e : BasilExpr.t = rewrite_smt_constructs e in
     (BasilExpr.cata smt_alg e) init
 
+  let assert_bexpr e =
+    let e : BasilExpr.t = rewrite_smt_constructs e in
+    let e =
+      let* s = BasilExpr.cata smt_alg e in
+      let a = add_assert s in
+      let s = extract a in
+      s
+    in
+    e init
+
   let%expect_test _ =
     let open BasilExpr in
     let e =
@@ -171,10 +222,11 @@ module SMTLib2 = struct
         (bvconst @@ PrimQFBV.of_int ~width:13 100)
     in
     print_endline (to_string e);
-    let smt = fst @@ of_bexpr e in
-    print_endline (CCSexp.to_string smt);
+    let smt = fst @@ assert_bexpr e in
+    Iter.for_each smt (fun a -> print_endline (CCSexp.to_string a));
     [%expect
       {|
       eq(sign_extend_10(0x7:bv3), 0x64:bv13)
-      (eq (concat (concat (concat (concat (concat (concat (concat (concat (concat (concat (_ bv7 3) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) (_ bv100 13)) |}]
+      (set-logic QF_BV)
+      (assert (eq (concat (concat (concat (concat (concat (concat (concat (concat (concat (concat (_ bv7 3) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) (_ bv100 13))) |}]
 end

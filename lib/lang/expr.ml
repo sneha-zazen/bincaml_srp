@@ -16,7 +16,7 @@ module AbstractExpr = struct
         (** application of a pure intrinsic function with n arguments *)
     | ApplyFun of string * 'e list
         (** application of a pure runtime-defined function with n arguments *)
-    | Binding of 'var list * 'e  (** syntactic binding in a nested scope *)
+    | Binding of 'e list * 'e  (** syntactic binding in a nested scope *)
   [@@deriving eq, ord, fold, map, iter]
 
   let id a b = a
@@ -132,24 +132,15 @@ module Recursion (O : Fix) = struct
      Perform two recursion simultaneously, passing the result of the first to the second
      *)
   let rec zygo alg1 alg2 e = snd (mutu (AbstractExpr.map fst %> alg1) alg2) e
+
+  (* zygo with the order swapped *)
   let rec zygo_l alg2 alg1 = fst (mutu alg1 (AbstractExpr.map snd %> alg2))
 
   let map_fold2 ~f ~alg1 ~alg2 r e =
     let alg r x = (alg1 r x, alg2 (AbstractExpr.map snd x)) in
     fst (fst % map_fold ~f ~alg r, snd % map_fold ~f ~alg r) e
 
-  let rec map_fixed_fold ~alg e =
-    (unfix %> (AbstractExpr.map (map_fixed_fold ~alg) %> alg e)) e
-
-  (** for defining rewrites to part of an expression, passes the original fixed
-      expression to the algebra to efficiently noop *)
-  let map_fixed_fold2 ~alg1 ~alg2 e =
-    let alg r x = (alg1 r x, alg2 (AbstractExpr.map snd x)) in
-    fst (fst % map_fixed_fold ~alg, snd % map_fixed_fold ~alg) e
-
-  (*
-    catamorphism that also passes the original expression through
-  *)
+  (** catamorphism that also passes the original expression through *)
   let rec para_f alg f e =
     let p f g x = (f x, g x) in
     (alg % AbstractExpr.map (p f (para_f alg f)) % unfix) e
@@ -160,25 +151,52 @@ module Recursion (O : Fix) = struct
 
   let rvar v = fix (RVar v)
   let const v = fix (Constant v)
-  let intconst v = fix (Constant v)
   let binexp ~op l r = fix (BinaryExpr (op, l, r))
   let unexp ~op arg = fix (UnaryExpr (op, arg))
   let fapply id params = fix (ApplyFun (id, params))
   let binding params body = fix (Binding (params, body))
-  let identity x = x
   let applyintrin ~op params = fix (ApplyIntrin (op, params))
   let apply_fun ~name params = fix (ApplyFun (name, params))
 
-  (**helpers**)
+  (** dont know *)
+  let bind_match ~fconst ~frvar ~funi ~fbin ~fbind ~fintrin ~ffun
+      (e : 'e abstract_expr) : 'a =
+    let open AbstractExpr in
+    match e with
+    | RVar v -> frvar v
+    | Constant c -> fconst c
+    | UnaryExpr (op, e) -> funi op e
+    | BinaryExpr (op, a, b) -> fbin op a b
+    | Binding (a, b) -> fbind a b
+    | ApplyIntrin (a, b) -> fintrin a b
+    | ApplyFun (a, b) -> ffun a b
+
+  (**helpers*)
 
   module VarSet = Set.Make (Var)
+
+  (** get free vars of exprs *)
+  let free_vars (e : t) =
+    let open AbstractExpr in
+    let alg e =
+      match e with
+      | RVar e -> VarSet.singleton e
+      | Binding (b, e) ->
+          VarSet.diff e (List.fold_left VarSet.union VarSet.empty b)
+      | o -> fold (fun acc a -> VarSet.union a acc) VarSet.empty o
+    in
+    cata alg e
 
   (* substite variables for expressions *)
   let substitute (sub : var -> t option) (e : t) =
     let open AbstractExpr in
     let binding acc e =
       match e with
-      | Binding (b, e) -> VarSet.union acc (VarSet.of_list b)
+      | Binding (b, e) ->
+          let v =
+            List.map free_vars b |> List.fold_left VarSet.union VarSet.empty
+          in
+          VarSet.union acc v
       | o -> acc
     in
     let subst binding orig =
@@ -189,21 +207,8 @@ module Recursion (O : Fix) = struct
     in
     map_fold ~f:binding ~alg:subst VarSet.empty e
 
-  (* get free vars of exprs *)
-  let free_vars (e : t) =
-    let open AbstractExpr in
-    let alg e =
-      match e with
-      | RVar e -> VarSet.singleton e
-      | Binding (b, e) -> VarSet.diff e (VarSet.of_list b)
-      | o -> fold (fun acc a -> VarSet.union a acc) VarSet.empty o
-    in
-    cata alg e
-
-  (* get list of child expressions *)
+  (** get list of child expressions *)
   let children e = cata Alges.children_alg e
-
-  (** tests **)
 end
 
 module BasilExpr = struct
@@ -263,8 +268,7 @@ module BasilExpr = struct
     | ApplyIntrin (op, es) ->
         AllOps.to_string op ^ "(" ^ String.concat ", " es ^ ")"
     | ApplyFun (n, es) -> n ^ "(" ^ String.concat ", " es ^ ")"
-    | Binding (vs, b) ->
-        String.concat " " (List.map Var.to_string vs) ^ " :: " ^ b
+    | Binding (vs, b) -> String.concat " " vs ^ " :: " ^ b
 
   let to_string s = cata print_alg s
   let pp fmt s = Format.pp_print_string fmt @@ to_string s
@@ -282,7 +286,7 @@ module BasilExpr = struct
     | BinaryExpr (op, l, r) -> ret_type_bin op l r |> get_ty
     | ApplyIntrin (op, args) -> ret_type_intrin op args |> get_ty
     | ApplyFun (a, b) -> Types.BType.Top
-    | Binding (vars, b) -> Types.BType.uncurry (List.map Var.typ vars) b
+    | Binding (vars, b) -> Types.BType.uncurry vars b
 
   let type_of e = cata type_alg e
   let fold_with_type (alg : 'e abstract_expr -> 'a) = zygo_l type_alg alg

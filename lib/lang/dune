@@ -14,7 +14,7 @@
   expr_smt
   expr_eval)
  (flags -w -27)
- (libraries zarith fix ocamlgraph containers containers-data)
+ (libraries zarith fix ocamlgraph containers containers-data iter)
  (inline_tests)
  (preprocess
   (pps

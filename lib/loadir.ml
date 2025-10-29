@@ -387,9 +387,13 @@ module BasilASTLoader = struct
     | Expr_Literal Value_False -> BasilExpr.boolconst false
     | Expr_Old e -> BasilExpr.unexp ~op:`Old (trans_expr e)
     | Expr_Forall (LambdaDef1 (lv, _, e)) ->
-        BasilExpr.forall ~bound:(unpackLVars lv) (trans_expr e)
+        BasilExpr.forall
+          ~bound:(List.map BasilExpr.rvar @@ unpackLVars lv)
+          (trans_expr e)
     | Expr_Exists (LambdaDef1 (lv, _, e)) ->
-        BasilExpr.exists ~bound:(unpackLVars lv) (trans_expr e)
+        BasilExpr.exists
+          ~bound:(List.map BasilExpr.rvar @@ unpackLVars lv)
+          (trans_expr e)
     | Expr_FunctionOp (gi, args) ->
         BasilExpr.apply_fun
           ~name:(unsafe_unsigil (`Global gi))

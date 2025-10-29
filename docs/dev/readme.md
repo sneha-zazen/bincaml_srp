@@ -21,6 +21,7 @@ Structure
 - [Recursion schemes in ocaml](https://icfp24.sigplan.org/details/ocaml-2024-papers/11/Recursion-schemes-in-OCaml-An-experience-report)
 - [A guide to recursion schemes](https://yangzhixuan.github.io/pdf/fantastic-morphisms.pdf)
 - [Code reuse through polymorphic variants](https://www.math.nagoya-u.ac.jp/~garrigue/papers/variant-reuse.pdf)
+- [expr structrue in smtml](https://formalsec.github.io/smtml/smtml/Smtml/Eval/index.html#type-op_type)
 
 Semantics
 
