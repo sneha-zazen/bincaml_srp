@@ -54,7 +54,6 @@ module SMTLib2 = struct
     (bv, bs)
 
   let ( let* ) = bind
-  let ( >>= ) = bind
 
   let sequence (args : 'a t list) : 'a list t =
     List.fold_left
@@ -64,20 +63,24 @@ module SMTLib2 = struct
         return (i :: a))
       (return []) args
 
+  let add_command (v : Sexp.t) (s : builder) =
+    let asrt = v in
+    (asrt, { s with commands = asrt :: s.commands })
+
   let add_assert (v : Sexp.t) (s : builder) =
     let asrt = list [ atom "assert"; v ] in
     (asrt, { s with commands = asrt :: s.commands })
 
-  let add_preamble_assert (v : Sexp.t) (s : builder) =
+  let add_preamble (v : Sexp.t) (s : builder) =
     (v, { s with preamble = v :: s.preamble })
 
-  let extract (s : 'a t) =
+  let extract s =
     let* b = get s in
     let open Iter.Infix in
     let logic = list [ atom "set-logic"; atom (get_logic_string b.logics) ] in
     let preamble = List.to_iter (logic :: b.preamble) in
     let decls = VMap.to_iter b.var_decls >|= fun (v, d) -> d.decl_cmd in
-    let commands = List.to_iter b.commands in
+    let commands = List.rev b.commands |> List.to_iter in
     return (preamble <+> decls <+> commands)
 
   let rec of_typ (ty : Types.BType.t) =
@@ -171,6 +174,7 @@ module SMTLib2 = struct
             atom @@ "bv" ^ (PrimQFBV.value i |> Z.to_string);
             atom @@ Int.to_string @@ PrimQFBV.width i;
           ]
+    | `EQ -> atom "="
     | #Ops.AllOps.unary as o -> atom @@ Ops.AllOps.to_string o
     | #Ops.AllOps.const as o -> atom @@ Ops.AllOps.to_string o
     | #Ops.AllOps.binary as o -> atom @@ Ops.AllOps.to_string o
@@ -206,13 +210,18 @@ module SMTLib2 = struct
 
   let assert_bexpr e =
     let e : BasilExpr.t = rewrite_smt_constructs e in
-    let e =
-      let* s = BasilExpr.cata smt_alg e in
-      let a = add_assert s in
-      let s = extract a in
-      s
+    let* s = BasilExpr.cata smt_alg e in
+    add_assert s
+
+  let check_sat_bexpr e =
+    let x =
+      let* _ = assert_bexpr e in
+      add_command (list [ atom "check-sat" ])
     in
-    e init
+    let ex = (extract x) init in
+    fst ex
+
+  let assert_bexpr e = fst @@ (assert_bexpr e |> extract) init
 
   let%expect_test _ =
     let open BasilExpr in
@@ -222,11 +231,11 @@ module SMTLib2 = struct
         (bvconst @@ PrimQFBV.of_int ~width:13 100)
     in
     print_endline (to_string e);
-    let smt = fst @@ assert_bexpr e in
+    let smt = assert_bexpr e in
     Iter.for_each smt (fun a -> print_endline (CCSexp.to_string a));
     [%expect
       {|
       eq(sign_extend_10(0x7:bv3), 0x64:bv13)
       (set-logic QF_BV)
-      (assert (eq (concat (concat (concat (concat (concat (concat (concat (concat (concat (concat (_ bv7 3) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) (_ bv100 13))) |}]
+      (assert (= (concat (concat (concat (concat (concat (concat (concat (concat (concat (concat (_ bv7 3) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) (_ bv100 13))) |}]
 end

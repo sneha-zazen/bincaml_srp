@@ -51,9 +51,9 @@ module PrimQFBV = struct
     { w = width; v }
 
   let of_int ~(width : int) i =
-    assert (width > 0);
+    assert (width >= 0);
     let v = Z.of_int i in
-    assert (Z.gt v (Z.of_int 0));
+    assert (Z.geq v (Z.of_int 0));
     create ~width v
 
   let of_string i =
@@ -82,6 +82,10 @@ module PrimQFBV = struct
     size_is_equal a b;
     create ~width:a.w (f a.v b.v)
 
+  let bind2_signed f a b =
+    size_is_equal a b;
+    create ~width:a.w (f (to_signed_bigint a) (to_signed_bigint b))
+
   let map2 f a b =
     size_is_equal a b;
     f a.v b.v
@@ -100,20 +104,9 @@ module PrimQFBV = struct
     let v = if Z.equal b.v Z.zero then Z.minus_one else Z.div a.v b.v in
     create ~width:a.w v
 
-  let sdiv a b =
-    let neg_out = if is_negative a || is_negative b then neg else identity in
-    let a = if is_negative a then neg a else a in
-    let b = if is_negative b then neg b else b in
-    neg_out (udiv a b)
-
+  let sdiv a b = bind2_signed Z.div a b
+  let srem a b = bind2_signed Z.rem a b
   let urem a b = if is_zero b then a else bind2 Z.rem a b
-
-  let srem a b =
-    let neg_out = if is_negative a || is_negative b then neg else identity in
-    let a = if is_negative a then neg a else a in
-    let b = if is_negative b then neg b else b in
-    neg_out (urem a b)
-
   let ult a b = map2 Z.lt a b
   let ugt a b = map2 Z.gt a b
   let ule a b = map2 Z.leq a b
@@ -127,12 +120,16 @@ module PrimQFBV = struct
   let sgt a b = map2_signed Z.gt a b
   let sle a b = map2_signed Z.leq a b
   let sge a b = map2_signed Z.geq a b
-  let ashr a b = { w = a.w; v = Z.shift_right a.v (Z.to_int b.v) }
+
+  let ashr a b =
+    { w = a.w; v = Z.shift_right (to_signed_bigint a) (Z.to_int b.v) }
+
   let lshr a b = { w = a.w; v = Z.shift_right_trunc a.v (Z.to_int b.v) }
   let zero_extend ~(extension : int) b = { w = b.w + extension; v = b.v }
 
   let shl a b =
-    { w = a.w; v = z_extract (Z.shift_left a.v (Z.to_int b.v)) 0 a.w }
+    if Z.gt b.v (Z.of_int a.w) then zero ~size:(width a)
+    else { w = a.w; v = z_extract (Z.shift_left a.v (Z.to_int b.v)) 0 a.w }
 
   let sign_extend ~(extension : int) b =
     let w = b.w + extension in
