@@ -10,6 +10,7 @@ module StringMap = Map.Make (String)
 
 type load_st = {
   prog : Program.t;
+  curr_proc : Program.proc option;
   params_order :
     (string, (string * Var.t) list * (string * Var.t) list) Hashtbl.t;
 }
@@ -47,13 +48,15 @@ module BasilASTLoader = struct
 
   and transProgram ?(name = "<module>") (x : moduleT) : load_st =
     let prog =
-      { prog = Program.empty ~name (); params_order = Hashtbl.create 30 }
+      {
+        prog = Program.empty ~name ();
+        params_order = Hashtbl.create 30;
+        curr_proc = None;
+      }
     in
     match x with
     | Module1 declarations ->
         List.fold_left transDeclaration prog declarations |> fun p ->
-        Iter.for_each (p.prog.proc_names.get_declared ()) (fun i ->
-            print_endline (ID.to_string i));
         List.fold_left transDefinition p declarations
 
   and transDeclaration prog (x : decl) : load_st =
@@ -61,7 +64,7 @@ module BasilASTLoader = struct
     | Decl_SharedMem (bident, type') ->
         map_prog
           (fun p ->
-            Program.decl_glob p
+            Program.decl_global p
               (Var.create
                  (unsafe_unsigil (`Global bident))
                  ~pure:false (transType type'));
@@ -70,7 +73,7 @@ module BasilASTLoader = struct
     | Decl_UnsharedMem (bident, type') ->
         map_prog
           (fun p ->
-            Program.decl_glob p
+            Program.decl_global p
               (Var.create
                  (unsafe_unsigil (`Global bident))
                  ~pure:true (transType type'));
@@ -79,7 +82,7 @@ module BasilASTLoader = struct
     | Decl_Var (bident, type') ->
         map_prog
           (fun p ->
-            Program.decl_glob p
+            Program.decl_global p
               (Var.create
                  (unsafe_unsigil (`Global bident))
                  ~pure:true (transType type'));
@@ -136,9 +139,10 @@ module BasilASTLoader = struct
           attrs,
           spec_list,
           ProcDef_Some (bl, blocks, el) ) ->
-        let blocks = List.map (trans_block prog) blocks in
         let proc_id = prog.prog.proc_names.decl_or_get id in
         let p = ID.Map.find proc_id prog.prog.procs in
+        let prog = { prog with curr_proc = Some p } in
+        let blocks = List.map (trans_block prog) blocks in
         let open Procedure.Vert in
         let formal_out_params_order = List.map param_to_formal out_params in
         (* add blocks *)
@@ -194,7 +198,7 @@ module BasilASTLoader = struct
     | IntVal_Hex (IntegerHex (_, ihex)) -> Z.of_string ihex
     | IntVal_Dec (IntegerDec (_, i)) -> Z.of_string i
 
-  and transEndian (x : BasilIR.AbsBasilIR.endian) =
+  and trans_endian (x : BasilIR.AbsBasilIR.endian) =
     match x with Endian_Little -> `Big | Endian_Big -> `Little
 
   and trans_stmt (p_st : load_st) (x : BasilIR.AbsBasilIR.stmtWithAttrib) =
@@ -202,15 +206,15 @@ module BasilASTLoader = struct
     let open Stmt in
     match stmt with
     | Stmt_SingleAssign (Assignment1 (lvar, expr)) ->
-        `Stmt (Instr_Assign [ (transLVar lvar, trans_expr expr) ])
+        `Stmt (Instr_Assign [ (transLVar p_st lvar, trans_expr expr) ])
     | Stmt_MultiAssign assigns ->
         `Stmt
           (Instr_Assign
              (assigns
              |> List.map (function Assignment1 (l, r) ->
-                 (transLVar l, trans_expr r))))
+                 (transLVar p_st l, trans_expr r))))
     | Stmt_Load (lvar, endian, bident, expr, intval) ->
-        let endian = transEndian endian in
+        let endian = trans_endian endian in
         let mem =
           let n = unsafe_unsigil (`Global bident) in
           Option.get_exn_or ("memory undefined: " ^ n)
@@ -218,9 +222,9 @@ module BasilASTLoader = struct
         in
         `Stmt
           (Instr_Load
-             { lhs = transLVar lvar; mem; addr = trans_expr expr; endian })
+             { lhs = transLVar p_st lvar; mem; addr = trans_expr expr; endian })
     | Stmt_Store (endian, bident, addr, value, intval) ->
-        let endian = transEndian endian in
+        let endian = trans_endian endian in
         let mem =
           let n = unsafe_unsigil (`Global bident) in
           Option.get_exn_or ("memory undefined: " ^ n)
@@ -233,7 +237,7 @@ module BasilASTLoader = struct
         let n = unsafe_unsigil (`Proc bident) in
         let procid = p_st.prog.proc_names.get_id n in
         let in_param, out_param = Hashtbl.find p_st.params_order n in
-        let lhs = trans_call_lhs (List.map fst out_param) calllvars in
+        let lhs = trans_call_lhs p_st (List.map fst out_param) calllvars in
         let args =
           List.combine (List.map fst in_param) (List.map trans_expr exprs)
           |> Params.M.of_list
@@ -247,13 +251,14 @@ module BasilASTLoader = struct
         `Stmt (Instr_Assume { body = trans_expr expr; branch = true })
     | Stmt_Assert expr -> `Stmt (Instr_Assert { body = trans_expr expr })
 
-  and trans_call_lhs (formal_out : string list) (x : lVars) : Params.lhs =
+  and trans_call_lhs prog (formal_out : string list) (x : lVars) : Params.lhs =
     match x with
     | LVars_Empty -> Params.M.empty
     | LVars_LocalList lvars ->
         List.combine formal_out (unpackLVars lvars) |> Params.M.of_list
     | LVars_List lvars ->
-        List.combine formal_out @@ List.map transLVar lvars |> Params.M.of_list
+        List.combine formal_out @@ List.map (transLVar prog) lvars
+        |> Params.M.of_list
 
   and unpackLVars lvs =
     List.map
@@ -271,12 +276,19 @@ module BasilASTLoader = struct
     | Jump_Unreachable -> `None
     | Jump_Return exprs -> `Return (List.map trans_expr exprs)
 
-  and transLVar (x : BasilIR.AbsBasilIR.lVar) : Var.t =
+  and transLVar prog (x : BasilIR.AbsBasilIR.lVar) : Var.t =
+    let p = Option.get_exn_or "didnt set proc" prog.curr_proc in
     match x with
     | LVar_Local (LocalVar1 (bident, type')) ->
-        Var.create (unsafe_unsigil (`Local bident)) (transType type')
+        let v = Var.create (unsafe_unsigil (`Local bident)) (transType type') in
+        let _ = Procedure.decl_local p v in
+        v
     | LVar_Global (GlobalVar1 (bident, type')) ->
-        Var.create (unsafe_unsigil (`Global bident)) (transType type')
+        let v =
+          Var.create (unsafe_unsigil (`Global bident)) (transType type')
+        in
+        let _ = Program.decl_global prog.prog v in
+        v
 
   and list_begin_end_to_textrange beginlist endlist : textRange =
     let beg = match beginlist with BeginList ((i, j), l) -> i in

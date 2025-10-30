@@ -116,7 +116,7 @@ module Stmt = struct
     | Instr_Return { args } -> Iter.empty
 
   (** Get pretty-printer for il format*)
-  let pretty show_var show_expr s =
+  let pretty show_lvar show_var show_expr s =
     let open Containers_pp in
     let open Containers_pp.Infix in
     let param_list l =
@@ -125,9 +125,10 @@ module Stmt = struct
         let l = Params.M.to_list l |> List.map (fun (i, t) -> t) in
         bracket "(" (nest 2 (fill (text "," ^ newline_or_spaces 1) l)) ")"
     in
+    let show_lvar v = text @@ show_lvar v in
     let show_var v = text @@ show_var v in
     let show_expr e = text @@ show_expr e in
-    let e = map ~f_lvar:show_var ~f_expr:show_expr ~f_rvar:show_var s in
+    let e = map ~f_lvar:show_lvar ~f_expr:show_expr ~f_rvar:show_var s in
     match e with
     | Instr_Assign ls ->
         let ls = List.map (function lhs, rhs -> lhs ^ text " := " ^ rhs) ls in
@@ -138,32 +139,31 @@ module Stmt = struct
     | Instr_Load { lhs; mem; addr; endian } ->
         lhs ^ text " := " ^ text "load "
         ^ text (show_endian endian)
-        ^ text " " ^ addr
+        ^ text " " ^ mem ^ text " " ^ addr
     | Instr_Store { mem; addr; value; endian } ->
         text "store "
         ^ text (show_endian endian)
-        ^ text " " ^ addr ^ text " " ^ value
+        ^ text " " ^ mem ^ text " " ^ addr ^ text " " ^ value
     | Instr_IntrinCall { lhs; name; args } ->
-        fill nil
+        append_l ~sep:nil
           [
             param_list lhs;
-            newline ^ text " := call ";
+            newline ^ text ":= call ";
             text name;
             param_list args;
           ]
     | Instr_Call { lhs; procid; args } ->
         let n = ID.to_string procid in
-        fill nil
-          [
-            param_list lhs; newline ^ text " := call "; text n; param_list args;
-          ]
+        append_l ~sep:nil
+          [ param_list lhs; newline ^ text ":= call "; text n; param_list args ]
     | Instr_Return { args } -> text "return " ^ param_list args
     | Instr_IndirectCall { target } -> text "indirect_call " ^ target
 
   (** Pretty print to il format*)
-  let to_string ?width show_var show_expr (s : (Var.t, Var.t, BasilExpr.t) t) =
+  let to_string ?width show_lvar show_var show_expr
+      (s : (Var.t, Var.t, BasilExpr.t) t) =
     let width = Option.get_or ~default:80 width in
-    let d = pretty show_var show_expr s in
+    let d = pretty show_lvar show_var show_expr s in
     Containers_pp.Pretty.to_string ~width d
 end
 
@@ -198,7 +198,7 @@ module Block = struct
   let equal _ _ a b = ID.equal a.id b.id
   let compare _ _ a b = ID.compare a.id b.id
 
-  let pretty show_var show_expr ?(succ = []) b =
+  let pretty show_lvar show_var show_expr ?(succ = []) b =
     let open Containers_pp in
     let open Containers_pp.Infix in
     let phi =
@@ -210,12 +210,15 @@ module Block = struct
     in
     let jump =
       match succ with
-      | [] -> text "unreachable"
+      | [] -> text "unreachable;"
       | succ ->
-          text "goto " ^ (fun s -> bracket "(" (fill (text ",") s) ")") succ
+          text "goto "
+          ^ (fun s -> bracket "(" (fill (text ",") s) ")") succ
+          ^ text ";"
     in
     let stmts =
-      Vector.to_list b.stmts |> List.map (Stmt.pretty show_var show_expr)
+      Vector.to_list b.stmts
+      |> List.map (Stmt.pretty show_lvar show_var show_expr)
     in
     let stmts = phi @ stmts @ [ jump ] in
     let stmts =
@@ -228,7 +231,8 @@ module Block = struct
   let to_string b =
     let stmts =
       Vector.map
-        (fun stmt -> Stmt.to_string Var.to_string BasilExpr.to_string stmt)
+        (fun stmt ->
+          Stmt.to_string Var.to_string Var.to_string BasilExpr.to_string stmt)
         b.stmts
       |> Vector.to_iter
       |> String.concat_iter ~sep:";\n  "
@@ -305,42 +309,6 @@ module Procedure = struct
     specification : ('v, 'e) proc_spec option;
   }
 
-  let pretty show_var show_expr p =
-    let open Containers_pp in
-    let open Containers_pp.Infix in
-    let params m =
-      Params.M.to_list m
-      |> List.map (function i, p -> show_var p)
-      |> List.map text
-      |> fun s -> bracket "(" (fill (text "," ^ newline_or_spaces 1) s) ")"
-    in
-    let header =
-      text "proc "
-      ^ text (ID.to_string p.id)
-      ^ nest 2
-          (fill
-             (newline ^ text " -> ")
-             [ params p.formal_in_params; params p.formal_out_params ])
-    in
-    let collect_edge b ende acc =
-      let edge = G.E.label (G.find_edge p.graph b ende) in
-      match edge with
-      | Edge.(Block b) ->
-          let succ = G.succ p.graph ende in
-          let succ = List.map (fun v -> text (Vert.block_id_string v)) succ in
-          let b = Block.pretty show_var show_expr ~succ b in
-          b :: acc
-      | _ -> acc
-    in
-    let blocks = G.fold_edges collect_edge p.graph [] in
-    let blocks =
-      surround (text "[")
-        (nest 2 @@ newline
-        ^ append_l ~sep:(text ";" ^ newline) (List.rev blocks))
-        (newline ^ text "]")
-    in
-    header ^ nl ^ blocks
-
   let add_goto p ~(from : ID.t) ~(targets : ID.t list) =
     let open Vert in
     let g = p.graph in
@@ -396,7 +364,7 @@ module Procedure = struct
   let add_return p ~(from : ID.t) ~(args : BasilExpr.t Params.M.t) =
     let open Vert in
     let fr = End from in
-    let id = p.block_ids.fresh ~name:"retbl" () in
+    let id = p.block_ids.fresh ~name:"%returnbl" () in
     let b =
       Edge.(
         Block
@@ -431,13 +399,72 @@ module Procedure = struct
     G.remove_edge p.graph (Begin id) (End id);
     G.add_edge_e p.graph (Begin id, Block block, End id)
 
+  let decl_local p v =
+    let _ = p.local_ids.decl_or_get (Var.name v) in
+    Var.Decls.add p.locals v;
+    v
+
   let fresh_var p ?(pure = true) typ =
     let n, _ = p.local_ids.fresh ~name:"v" () in
     let v = Var.create n typ ~pure in
     Var.Decls.add p.locals v;
     v
 
-  let copy e = { e with graph = G.copy e.graph }
+  let blocks_to_list p =
+    let collect_edge edge acc =
+      let edge = G.E.label edge in
+      match edge with Edge.(Block b) -> b :: acc | _ -> acc
+    in
+    G.fold_edges_e collect_edge p.graph []
+
+  let pretty show_var show_expr p =
+    let show_lvar (v : Var.t) : string =
+      if ID.M.mem_left (Var.name v) (p.local_ids.get_declared ()) then
+        String.("var " ^ Var.to_string v)
+      else Var.to_string v
+    in
+    let open Containers_pp in
+    let open Containers_pp.Infix in
+    let params m =
+      Params.M.to_list m
+      |> List.map (function i, p -> show_var p)
+      |> List.map text
+      |> fun s -> bracket "(" (fill (text "," ^ newline_or_spaces 1) s) ")"
+    in
+    let header =
+      text "proc "
+      ^ text (ID.to_string p.id)
+      ^ nest 2
+          (fill
+             (newline ^ text " -> ")
+             [ params p.formal_in_params; params p.formal_out_params ])
+    in
+    let collect_edge b ende acc =
+      let edge = G.E.label (G.find_edge p.graph b ende) in
+      match edge with
+      | Edge.(Block b) ->
+          let succ = G.succ p.graph ende in
+          let succ =
+            match succ with
+            | [ Return ] -> (
+                let _, re, _ = G.find_edge p.graph ende Return in
+                match re with
+                | Block { id } -> [ text (ID.to_string id) ]
+                | _ -> failwith "bad return")
+            | succ -> List.map (fun v -> text (Vert.block_id_string v)) succ
+          in
+          let b = Block.pretty show_lvar show_var show_expr ~succ b in
+          b :: acc
+      | _ -> acc
+    in
+    let blocks = G.fold_edges collect_edge p.graph [] in
+    let blocks =
+      surround (text "[")
+        (nest 2 @@ newline
+        ^ append_l ~sep:(text ";" ^ newline) (List.rev blocks))
+        (newline ^ text "]")
+    in
+    header ^ nl ^ blocks
 end
 
 module Program = struct
@@ -453,7 +480,7 @@ module Program = struct
     proc_names : ID.generator;
   }
 
-  let decl_glob p = Var.Decls.add p.globals
+  let decl_global p = Var.Decls.add p.globals
 
   let empty ?name () =
     let modulename = Option.get_or ~default:"<module>" name in
