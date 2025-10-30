@@ -38,10 +38,10 @@ module Bindings = CCHashTrie.Make (V)
 
 module Decls = struct
   type var = t
-  type t = (string, var) Hashtbl.t
+  type 'v t = (string, 'v) Hashtbl.t
 
   let find_opt m name = Hashtbl.find_opt m name
-  let empty () : t = Hashtbl.create 30
+  let empty () : 'v t = Hashtbl.create 30
 
   let add m (v : var) =
     let d = find_opt m (name v) in

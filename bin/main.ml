@@ -8,8 +8,7 @@ let check fname proc =
   let procs prog =
     let open Program in
     ID.Map.iter
-      (fun i (_ : Procedure.t) ->
-        Printf.printf "%d %s\n" i (prog.proc_names.get_name i))
+      (fun i _ -> Printf.printf "%d %s\n" i (prog.proc_names.get_name i))
       prog.procs
   in
   if proc <> "" then

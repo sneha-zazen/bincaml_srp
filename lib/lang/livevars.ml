@@ -44,7 +44,7 @@ module LV =
         match G.E.label e with Block b -> tf_block d b | _ -> d
     end)
 
-let run (p : Procedure.t) = LV.analyze (function e -> V.empty) p.graph
+let run (p : Program.proc) = LV.analyze (function e -> V.empty) p.graph
 let label (r : G.vertex -> V.t) (v : G.vertex) = show_v (r v)
 let print_g res = Viscfg.dot_labels (fun v -> Some (label res v))
 

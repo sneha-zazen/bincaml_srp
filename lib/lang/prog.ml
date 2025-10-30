@@ -255,18 +255,22 @@ module Procedure = struct
   module Loc = Int
   module G = Graph.Imperative.Digraph.ConcreteBidirectionalLabeled (Vert) (Edge)
 
-  type t = {
-    id : ID.t;
-    formal_in_params : Params.formal;
-    formal_out_params : Params.formal;
-    captures_globs : Var.Decls.t;
-    modifies_globs : Var.Decls.t;
+  type ('v, 'e) proc_spec = {
     requires : BasilExpr.t list;
     ensures : BasilExpr.t list;
-    locals : Var.Decls.t;
+    captures_globs : 'v Var.Decls.t;
+    modifies_globs : 'v Var.Decls.t;
+  }
+
+  type ('v, 'e) t = {
+    id : ID.t;
+    formal_in_params : 'v Params.M.t;
+    formal_out_params : 'v Params.M.t;
+    locals : 'v Var.Decls.t;
     graph : G.t;
     gensym : Fix.Gensym.gensym;
     gensym_bloc : Fix.Gensym.gensym;
+    specification : ('v, 'e) proc_spec option;
   }
 
   let add_goto p ~(from : ID.t) ~(targets : ID.t list) =
@@ -281,6 +285,9 @@ module Procedure = struct
       ?(modifies_globs = Var.Decls.empty ()) ?(requires = []) ?(ensures = [])
       ?(locals = Var.Decls.empty ()) ?(blocks = Vector.create ()) () =
     let graph = G.create () in
+    let specification =
+      Some { captures_globs; modifies_globs; requires; ensures }
+    in
     G.add_vertex graph Entry;
     G.add_vertex graph Exit;
     G.add_vertex graph Return;
@@ -288,14 +295,11 @@ module Procedure = struct
       id;
       formal_in_params;
       formal_out_params;
-      captures_globs;
-      modifies_globs;
-      requires;
-      ensures;
       graph;
       locals;
       gensym = Fix.Gensym.make ();
       gensym_bloc = Fix.Gensym.make ();
+      specification;
     }
 
   let fresh_block p ?(phis = []) ~(stmts : ('var, 'var, 'expr) Stmt.t list)
@@ -360,13 +364,13 @@ end
 
 module Program = struct
   type e = BasilExpr.t
-  type proc = Procedure.t
+  type proc = (Var.t, BasilExpr.t) Procedure.t
   type bloc = (Var.t, BasilExpr.t) Block.t
   type stmt = (Var.t, Var.t, e) Stmt.t
 
   type t = {
     modulename : string;
-    globals : Var.Decls.t;
+    globals : Var.t Var.Decls.t;
     procs : proc ID.Map.t;
     proc_names : ID.Named.t;
   }
