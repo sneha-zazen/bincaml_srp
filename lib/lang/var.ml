@@ -46,6 +46,7 @@ module Decls = struct
     let d = find_opt m (name v) in
     match d with
     | Some e when equal e v -> ()
-    | Some e -> failwith "Already declared diff var with that name: "
+    | Some e ->
+        failwith @@ "Already declared diff var with that name: " ^ name v
     | None -> Hashtbl.add m (name v) v
 end

@@ -174,7 +174,7 @@ module Block = struct
       variable*)
 
   module V = struct
-    type 'a t = 'a Vector.ro_vector
+    type 'a t = 'a Vector.vector
 
     let equal e a b = Vector.equal e a b
     let compare e a b = Vector.compare e a b
@@ -232,8 +232,7 @@ module Block = struct
     let b = pretty Var.to_string Var.to_string BasilExpr.to_string b in
     Containers_pp.Pretty.to_string ~width:80 b
 
-  let stmt_iter b = Vector.to_iter b.stmts
-  let stmt_iter b = Vector.to_iter b.stmts
+  let stmts_iter b = Vector.to_iter b.stmts
 
   let fold_stmt_forwards ~(phi : 'acc -> 'v phi list -> 'acc)
       ~(f : 'acc -> ('v, 'v, 'e) Stmt.t -> 'acc) (i : 'a) (b : ('v, 'e) t) :
@@ -337,8 +336,8 @@ module Procedure = struct
     let stmts = Vector.of_list stmts in
     let b = Edge.(Block { phis; stmts }) in
     let open Vert in
-    G.add_vertex p.graph (Begin id);
-    G.add_vertex p.graph (Begin id);
+    let existing = G.find_all_edges p.graph (Begin id) (End id) in
+    List.iter (fun e -> G.remove_edge_e p.graph e) existing;
     G.add_edge_e p.graph (Begin id, b, End id);
     List.iter (fun i -> G.add_edge p.graph (End id) (Begin i)) successors
 
@@ -360,7 +359,6 @@ module Procedure = struct
   let add_return p ~(from : ID.t) ~(args : BasilExpr.t Params.M.t) =
     let open Vert in
     let fr = End from in
-    let id = p.block_ids.fresh ~name:"%returnbl" () in
     let b =
       Edge.(
         Block
@@ -403,8 +401,9 @@ module Procedure = struct
 
   let blocks_to_list p =
     let collect_edge edge acc =
+      let id = G.V.label (G.E.src edge) in
       let edge = G.E.label edge in
-      match edge with Edge.(Block b) -> b :: acc | _ -> acc
+      match edge with Edge.(Block b) -> (id, b) :: acc | _ -> acc
     in
     G.fold_edges_e collect_edge p.graph []
 

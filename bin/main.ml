@@ -11,16 +11,25 @@ let check fname proc =
     let open Program in
     Lang.ID.Map.iter (fun i _ -> Printf.printf "%s\n" (ID.show i)) prog.procs
   in
-  if not @@ String.equal proc "" then
+  if not @@ String.equal proc "" then (
     let id = p.prog.proc_names.get_id proc in
     let p = Lang.ID.Map.find id p.prog.procs in
-    Lang.Livevars.print_live_vars_dot Format.std_formatter p
-    (*let p =
+    Containers.IO.with_out "before.il" (fun f ->
+        Containers_pp.Pretty.to_format (Format.of_chan f) ~width:80
+          (Lang.Prog.Procedure.pretty Lang.Var.to_string
+             Lang.Expr.BasilExpr.to_string p));
+    Lang.Cf_tx.simplify_proc_exprs p;
+    Containers.IO.with_out "after.il" (fun f ->
+        Containers_pp.Pretty.to_format (Format.of_chan f) ~width:80
+          (Lang.Prog.Procedure.pretty Lang.Var.to_string
+             Lang.Expr.BasilExpr.to_string p)))
+  (*Lang.Livevars.print_live_vars_dot Format.std_formatter p*)
+  (*let p =
       Lang.Prog.Procedure.pretty Lang.Var.to_string
         Lang.Expr.BasilExpr.to_string p
     in
     print_endline @@ Containers_pp.Pretty.to_string ~width:80 p*)
-  else procs p.prog
+    else procs p.prog
 
 let fname =
   let doc = "Input file name (filename.il)" in

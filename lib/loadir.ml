@@ -295,7 +295,7 @@ module BasilASTLoader = struct
         let v =
           Var.create (unsafe_unsigil (`Global bident)) (transType type')
         in
-        let _ = Program.decl_global prog.prog v in
+        (*let _ = Program.decl_global prog.prog v in*)
         v
 
   and list_begin_end_to_textrange beginlist endlist : textRange =
