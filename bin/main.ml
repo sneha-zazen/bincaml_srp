@@ -1,5 +1,6 @@
 open Cmdliner
 open Lang.Prog
+open Containers
 
 let () = Printexc.record_backtrace true
 
@@ -11,10 +12,15 @@ let check fname proc =
       (fun i _ -> Printf.printf "%d %s\n" i (prog.proc_names.get_name i))
       prog.procs
   in
-  if proc <> "" then
+  if not @@ String.equal proc "" then
     let id = p.prog.proc_names.get_id proc in
     let p = ID.Map.find id p.prog.procs in
-    Lang.Livevars.print_live_vars_dot Format.std_formatter p
+    let p =
+      Lang.Prog.Procedure.pretty Lang.Var.to_string
+        Lang.Expr.BasilExpr.to_string p
+    in
+    print_endline @@ Containers_pp.Pretty.to_string ~width:80 p
+    (*Lang.Livevars.print_live_vars_dot Format.std_formatter p*)
   else procs p.prog
 
 let fname =

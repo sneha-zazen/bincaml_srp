@@ -2,7 +2,7 @@ open Value
 open Common
 open Types
 open Expr
-open ContainersLabels
+open Containers
 
 module ID = struct
   include Int
@@ -48,27 +48,25 @@ module Params = struct
 
   let show_actual a =
     M.to_list a
-    |> List.map ~f:(function k, v ->
+    |> List.map (function k, v ->
         Printf.sprintf "%s -> %s" k (BasilExpr.to_string v))
-    |> String.concat ~sep:", "
+    |> String.concat ", "
     |> fun x -> "(" ^ x ^ ")"
 
   let pp_actual fmt a = Format.pp_print_string fmt (show_actual a)
 
   let show_formal (a : formal) =
     M.to_list a
-    |> List.map ~f:(function k, v ->
-        Printf.sprintf "%s -> %s" k (Var.to_string v))
-    |> String.concat ~sep:", "
+    |> List.map (function k, v -> Printf.sprintf "%s -> %s" k (Var.to_string v))
+    |> String.concat ", "
     |> fun x -> "(" ^ x ^ ")"
 
   let pp_formal fmt a = Format.pp_print_string fmt (show_formal a)
 
   let show_lhs (a : lhs) =
     M.to_list a
-    |> List.map ~f:(function k, v ->
-        Printf.sprintf "%s <- %s" (Var.to_string v) k)
-    |> String.concat ~sep:", "
+    |> List.map (function k, v -> Printf.sprintf "%s <- %s" (Var.to_string v) k)
+    |> String.concat ", "
     |> fun x -> "(" ^ x ^ ")"
 
   let pp_lhs fmt a = Format.pp_print_string fmt (show_lhs a)
@@ -107,9 +105,7 @@ module Stmt = struct
     | Instr_IndirectCall of { target : 'expr }
   [@@deriving eq, ord, map]
 
-  let map ~f_lvar ~f_expr e =
-    let f_rvar v = f_expr (BasilExpr.rvar v) in
-    map f_lvar f_rvar f_expr e
+  let map ~f_lvar ~f_expr ~f_rvar e = map f_lvar f_rvar f_expr e
 
   (** return an iterator over any memory field in the statement (read or
       written) *)
@@ -154,42 +150,76 @@ module Stmt = struct
     | Instr_Call { lhs; procid; args } -> Params.M.to_iter lhs >|= snd
     | Instr_Return { args } -> Iter.empty
 
-  (** Pretty print to il format*)
-  let to_string show_var show_expr (s : (Var.t, Var.t, BasilExpr.t) t) =
+  (** Get pretty-printer for il format*)
+  let pretty show_var show_expr s =
+    let open Containers_pp in
+    let open Containers_pp.Infix in
     let param_list l =
-      if Params.M.is_empty l then ""
+      if Params.M.is_empty l then text "()"
       else
-        "("
-        ^ (Params.M.to_list l
-          |> List.map ~f:(function k, v -> k ^ " -> " ^ v)
-          |> String.concat ~sep:", ")
-        ^ ")"
+        let l = Params.M.to_list l |> List.map (fun (i, t) -> t) in
+        bracket "(" (nest 2 (fill (text "," ^ newline_or_spaces 1) l)) ")"
     in
-    map ~f_lvar:show_var ~f_expr:show_expr s |> function
+    let show_var v = text @@ show_var v in
+    let show_expr e = text @@ show_expr e in
+    let e = map ~f_lvar:show_var ~f_expr:show_expr ~f_rvar:show_var s in
+    match e with
     | Instr_Assign ls ->
-        List.map ~f:(function lhs, rhs -> lhs ^ " := " ^ rhs) ls
-        |> String.concat ~sep:", "
-    | Instr_Assert { body } -> "assert " ^ body
-    | Instr_Assume { body; branch = false } -> "assume " ^ body
-    | Instr_Assume { body; branch = true } -> "guard " ^ body
+        let ls = List.map (function lhs, rhs -> lhs ^ text " := " ^ rhs) ls in
+        fill (text " ,") ls
+    | Instr_Assert { body } -> text "assert " ^ body
+    | Instr_Assume { body; branch = false } -> text "assume " ^ body
+    | Instr_Assume { body; branch = true } -> text "guard " ^ body
     | Instr_Load { lhs; mem; addr; endian } ->
-        lhs ^ " := " ^ "load_" ^ show_endian endian ^ " " ^ addr
+        lhs ^ text " := " ^ text "load "
+        ^ text (show_endian endian)
+        ^ text " " ^ addr
     | Instr_Store { mem; addr; value; endian } ->
-        "store_" ^ show_endian endian ^ " " ^ addr ^ " " ^ value
+        text "store "
+        ^ text (show_endian endian)
+        ^ text " " ^ addr ^ text " " ^ value
     | Instr_IntrinCall { lhs; name; args } ->
-        param_list lhs ^ " := call " ^ name ^ param_list args
+        fill nil
+          [
+            param_list lhs;
+            newline ^ text " := call ";
+            text name;
+            param_list args;
+          ]
     | Instr_Call { lhs; procid; args } ->
         let n = Int.to_string procid in
-        param_list lhs ^ " := call " ^ n ^ param_list args
-    | Instr_Return { args } -> "return " ^ param_list args
-    | Instr_IndirectCall { target } -> "indirect_call " ^ target
+        fill nil
+          [
+            param_list lhs; newline ^ text " := call "; text n; param_list args;
+          ]
+    | Instr_Return { args } -> text "return " ^ param_list args
+    | Instr_IndirectCall { target } -> text "indirect_call " ^ target
+
+  (** Pretty print to il format*)
+  let to_string ?width show_var show_expr (s : (Var.t, Var.t, BasilExpr.t) t) =
+    let width = Option.get_or ~default:80 width in
+    let d = pretty show_var show_expr s in
+    Containers_pp.Pretty.to_string ~width d
 end
 
 module Block = struct
+  type 'var phi = { lhs : 'var; rhs : (ID.t * 'var) list }
+  [@@deriving eq, ord, show]
   (** a phi node representing the join of incoming edges assigned to a lhs
       variable*)
-  type 'var phi = Phi of { lhs : 'var; rhs : (ID.t * 'var) list }
-  [@@deriving eq, ord, show]
+
+  let pretty_phi show_var v =
+    let open Containers_pp in
+    let open Containers_pp.Infix in
+    let lhs = text (show_var v.lhs) in
+    let rhs =
+      List.map
+        (function
+          | bid, v ->
+              (text @@ ID.to_string bid) ^ text " -> " ^ text (show_var v))
+        v.rhs
+    in
+    lhs ^ text " := phi" ^ (bracket "(" (fill (text ", ") rhs)) ")"
 
   type ('v, 'e) stmt_list = ('v, 'v, 'e) Stmt.t Vector.ro_vector
 
@@ -202,6 +232,33 @@ module Block = struct
 
   let equal _ _ a b = ID.equal a.id b.id
   let compare _ _ a b = ID.compare a.id b.id
+
+  let pretty show_var show_expr ?(succ = []) b =
+    let open Containers_pp in
+    let open Containers_pp.Infix in
+    let phi =
+      match b.phis with
+      | [] -> []
+      | o ->
+          let phi = List.map (pretty_phi show_var) o in
+          [ bracket "(" (fill (text ",") phi) ")" ]
+    in
+    let jump =
+      match succ with
+      | [] -> text "unreachable"
+      | succ ->
+          text "goto " ^ (fun s -> bracket "(" (fill (text ",") s) ")") succ
+    in
+    let stmts =
+      Vector.to_list b.stmts |> List.map (Stmt.pretty show_var show_expr)
+    in
+    let stmts = phi @ stmts @ [ jump ] in
+    let stmts =
+      bracket "["
+        (nest 2 @@ newline ^ append_l ~sep:(text ";" ^ newline) stmts)
+        "]"
+    in
+    text "block " ^ text (ID.to_string b.id) ^ text " " ^ stmts
 
   let to_string b =
     let stmts =
@@ -241,6 +298,13 @@ module Procedure = struct
           | Begin i -> (31, i)
           | End i -> (37, i))
         h v
+
+    let block_id_string = function
+      | Begin i -> ID.to_string i
+      | End i -> ID.to_string i
+      | Entry -> "proc_entry"
+      | Return -> "return"
+      | Exit -> "exit"
   end
 
   module Edge = struct
@@ -253,7 +317,10 @@ module Procedure = struct
   end
 
   module Loc = Int
-  module G = Graph.Imperative.Digraph.ConcreteBidirectionalLabeled (Vert) (Edge)
+
+  module G = struct
+    include Graph.Imperative.Digraph.ConcreteBidirectionalLabeled (Vert) (Edge)
+  end
 
   type ('v, 'e) proc_spec = {
     requires : BasilExpr.t list;
@@ -273,11 +340,47 @@ module Procedure = struct
     specification : ('v, 'e) proc_spec option;
   }
 
+  let pretty show_var show_expr p =
+    let open Containers_pp in
+    let open Containers_pp.Infix in
+    let params m =
+      Params.M.to_list m
+      |> List.map (function i, p -> show_var p)
+      |> List.map text
+      |> fun s -> bracket "(" (fill (text "," ^ newline_or_spaces 1) s) ")"
+    in
+    let header =
+      text "proc "
+      ^ text (ID.to_string p.id)
+      ^ nest 2
+          (fill
+             (newline ^ text " -> ")
+             [ params p.formal_in_params; params p.formal_out_params ])
+    in
+    let collect_edge b ende acc =
+      let edge = G.E.label (G.find_edge p.graph b ende) in
+      match edge with
+      | Edge.(Block b) ->
+          let succ = G.succ p.graph ende in
+          let succ = List.map (fun v -> text (Vert.block_id_string v)) succ in
+          let b = Block.pretty show_var show_expr ~succ b in
+          b :: acc
+      | _ -> acc
+    in
+    let blocks = G.fold_edges collect_edge p.graph [] in
+    let blocks =
+      surround (text "[")
+        (nest 2 @@ newline
+        ^ append_l ~sep:(text ";" ^ newline) (List.rev blocks))
+        (newline ^ text "]")
+    in
+    header ^ nl ^ blocks
+
   let add_goto p ~(from : ID.t) ~(targets : ID.t list) =
     let open Vert in
     let g = p.graph in
     let fr = End from in
-    List.iter ~f:(fun t -> G.add_edge g fr (Begin t)) targets
+    List.iter (fun t -> G.add_edge g fr (Begin t)) targets
 
   let create id ?(formal_in_params = Params.M.empty)
       ?(formal_out_params = Params.M.empty)
@@ -312,7 +415,7 @@ module Procedure = struct
     G.add_vertex p.graph (Begin id);
     G.add_vertex p.graph (Begin id);
     G.add_edge_e p.graph (Begin id, b, End id);
-    List.iter ~f:(fun i -> G.add_edge p.graph (End id) (Begin i)) successors;
+    List.iter (fun i -> G.add_edge p.graph (End id) (Begin i)) successors;
     id
 
   let add_return p ~(from : ID.t) ~(args : BasilExpr.t Params.M.t) =
