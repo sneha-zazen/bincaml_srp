@@ -55,7 +55,9 @@ let dump_proc_cmd =
 let print_callgraph fname =
   let p = Ocaml_of_basil.Loadir.ast_of_fname fname in
   let g = Program.CallGraph.make_call_graph p.prog in
-  Viscfg.PrintCallgraph.output_graph stdout g
+  Viscfg.PrintCallgraph.output_graph stdout g;
+  let _ = Livevars.Interproc.analyse_prog p.prog in
+  ()
 
 let callgraph_cmd =
   let doc = "print dot callgraph for prog" in

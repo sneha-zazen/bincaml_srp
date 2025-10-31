@@ -35,6 +35,7 @@ let create name ?(pure = true) ?(scope = Local) typ =
   H.make { name; typ; pure; scope }
 
 let name (e : t) = (Fix.HashCons.data e).name
+let scope (e : t) = (Fix.HashCons.data e).scope
 let typ (e : t) = (Fix.HashCons.data e).typ
 let pure (e : t) = (Fix.HashCons.data e).pure
 let compare (a : t) (b : t) = Fix.HashCons.compare a b
@@ -47,6 +48,8 @@ module Set = CCHashSet.Make (V)
 module Bindings = CCHashTrie.Make (V)
 
 module Decls = struct
+  include Hashtbl
+
   type 'v t = (string, 'v) Hashtbl.t
 
   let find_opt m name = Hashtbl.find_opt m name
