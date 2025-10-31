@@ -14,7 +14,7 @@ module Params = struct
   let show_actual a =
     M.to_list a
     |> List.map (function k, v ->
-        Printf.sprintf "%s -> %s" k (BasilExpr.to_string v))
+           Printf.sprintf "%s -> %s" k (BasilExpr.to_string v))
     |> String.concat ", "
     |> fun x -> "(" ^ x ^ ")"
 
@@ -180,6 +180,11 @@ module Block = struct
     let compare e a b = Vector.compare e a b
   end
 
+  module StmtID = struct
+    type t = ID.t * int [@@deriving ord, eq, show]
+    (** the index of a statement from the start or end of the block edge *)
+  end
+
   type ('v, 'e) t = {
     phis : 'v phi list;
         (** List of phi nodes simultaneously assigning each input variable *)
@@ -234,12 +239,19 @@ module Block = struct
 
   let stmts_iter b = Vector.to_iter b.stmts
 
-  let fold_stmt_forwards ~(phi : 'acc -> 'v phi list -> 'acc)
+  let fold_forwards ~(phi : 'acc -> 'v phi list -> 'acc)
       ~(f : 'acc -> ('v, 'v, 'e) Stmt.t -> 'acc) (i : 'a) (b : ('v, 'e) t) :
       'acc =
     Iter.fold f (phi i b.phis) (Vector.to_iter b.stmts)
 
-  let fold_stmt_backwards ~(f : 'acc -> ('v, 'v, 'e) Stmt.t -> 'acc)
+  let foldi_backwards ~(f : 'acc -> int * ('v, 'v, 'e) Stmt.t -> 'acc)
+      ~(phi : 'acc -> 'v phi list -> 'acc) ~(init : 'a) (b : ('v, 'e) t) : 'acc
+      =
+    Iter.fold f init
+      (Vector.to_iter_rev (Vector.mapi (fun i b -> (i, b)) b.stmts))
+    |> fun e -> phi e b.phis
+
+  let fold_backwards ~(f : 'acc -> ('v, 'v, 'e) Stmt.t -> 'acc)
       ~(phi : 'acc -> 'v phi list -> 'acc) ~(init : 'a) (b : ('v, 'e) t) : 'acc
       =
     Iter.fold f init (Vector.to_iter_rev b.stmts) |> fun e -> phi e b.phis
@@ -545,8 +557,8 @@ module Program = struct
         Procedure.blocks_to_list p |> List.to_iter |> Iter.map snd
         |> Iter.flat_map Block.stmts_iter
         |> Iter.filter_map (function
-          | Stmt.Instr_Call { procid } -> Some procid
-          | _ -> None)
+             | Stmt.Instr_Call { procid } -> Some procid
+             | _ -> None)
         |> ID.Set.of_iter
       in
       let calls =
@@ -564,8 +576,10 @@ module Program = struct
       Iter.iter (G.add_edge_e graph) proc_edges;
       t.entry_proc
       |> Option.iter (fun entry ->
-          List.iter (G.add_edge_e graph)
-            [ (Entry, Nop, ProcBegin entry); (ProcReturn entry, Nop, Return) ]);
+             List.iter (G.add_edge_e graph)
+               [
+                 (Entry, Nop, ProcBegin entry); (ProcReturn entry, Nop, Return);
+               ]);
       let call_dep caller callee =
         Iter.of_list
           [

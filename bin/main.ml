@@ -13,6 +13,13 @@ let proc =
   let doc = "proc to output" and docv = "PROC" in
   Arg.(value & opt string "" & info [ "p"; "proc" ] ~doc ~docv)
 
+let print_proc chan p =
+  let p =
+    Lang.Prog.Procedure.pretty Lang.Var.to_string Lang.Expr.BasilExpr.to_string
+      p
+  in
+  output_string chan @@ Containers_pp.Pretty.to_string ~width:80 p
+
 let list_procs fname =
   let p = Ocaml_of_basil.Loadir.ast_of_fname fname in
   let procs prog =
@@ -26,26 +33,26 @@ let procs_cmd =
   let info = Cmd.info "procs" ~version:"alpha" ~doc in
   Cmd.v info Term.(const list_procs $ fname)
 
+let dump_proc fname proc =
+  let p = Ocaml_of_basil.Loadir.ast_of_fname fname in
+  let id = p.prog.proc_names.get_id proc in
+  let p = Lang.ID.Map.find id p.prog.procs in
+  print_proc stdout p
+
 let print_cfg fname proc =
   let p = Ocaml_of_basil.Loadir.ast_of_fname fname in
   let id = p.prog.proc_names.get_id proc in
   let p = Lang.ID.Map.find id p.prog.procs in
-  Lang.Livevars.print_live_vars_dot Format.std_formatter p
+  (*Lang.Livevars.print_live_vars_dot Format.std_formatter p ; *)
+  Lang.Livevars.print_dse_dot Format.std_formatter p;
+  CCUnix.with_out "before.il" ~f:(fun c -> print_proc c p);
+  Lang.Livevars.DSE.transform p;
+  CCUnix.with_out "after.il" ~f:(fun c -> print_proc c p)
 
 let print_cfg_cmd =
   let doc = "print dot CFG for graph" in
   let info = Cmd.info "dump-cfg" ~version:"alpha" ~doc in
   Cmd.v info Term.(const print_cfg $ fname $ proc)
-
-let dump_proc fname proc =
-  let p = Ocaml_of_basil.Loadir.ast_of_fname fname in
-  let id = p.prog.proc_names.get_id proc in
-  let p = Lang.ID.Map.find id p.prog.procs in
-  let p =
-    Lang.Prog.Procedure.pretty Lang.Var.to_string Lang.Expr.BasilExpr.to_string
-      p
-  in
-  print_endline @@ Containers_pp.Pretty.to_string ~width:80 p
 
 let dump_proc_cmd =
   let doc = "print il for procedure" in

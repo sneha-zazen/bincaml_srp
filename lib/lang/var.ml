@@ -41,6 +41,8 @@ let pure (e : t) = (Fix.HashCons.data e).pure
 let compare (a : t) (b : t) = Fix.HashCons.compare a b
 let equal (a : t) (b : t) = Fix.HashCons.equal a b
 let hash (a : t) = Fix.HashCons.hash a
+let is_local (v : t) = equal_declaration_scope (scope v) Local
+let is_global (v : t) = equal_declaration_scope (scope v) Global
 
 module Set = CCHashSet.Make (V)
 (**FIXME: these do not use the hash-consign*)

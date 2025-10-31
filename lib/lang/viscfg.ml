@@ -66,7 +66,7 @@ module Make (L : Labelling) = Graph.Graphviz.Dot (struct
       match L.labelling v with
       | Some x ->
           let l = n ^ "\\l :     " ^ x ^ "\\l" in
-          [ `Label l ]
+          [ `Label (safe_label l) ]
       | _ -> [ `Label n ]
     in
     [ `Shape `Box; `Fontname "Mono" ] @ l
