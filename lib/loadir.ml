@@ -485,10 +485,16 @@ module BasilASTLoader = struct
     | BoolBinOp_boolimplies -> `IMPLIES
 end
 
-let ast_of_concrete_ast m = BasilASTLoader.transProgram m
+let ast_of_concrete_ast ~name m =
+  Trace.with_span ~__FILE__ ~__LINE__ "convert-concrete-ast" @@ fun f ->
+  BasilASTLoader.transProgram ~name m
 
 let ast_of_channel fname c =
-  let m = Basilloader.Cast_loader.concrete_ast_of_channel c in
-  BasilASTLoader.transProgram ~name:fname m
+  let m =
+    Trace.with_span ~__FILE__ ~__LINE__ "load-concrete-ast" @@ fun f ->
+    let m = Basilloader.Cast_loader.concrete_ast_of_channel c in
+    m
+  in
+  ast_of_concrete_ast ~name:fname m
 
 let ast_of_fname fname = IO.with_in fname (fun c -> ast_of_channel fname c)

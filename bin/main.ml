@@ -13,6 +13,7 @@ let check fname proc =
   in
   if not @@ String.equal proc "" then (
     let id = p.prog.proc_names.get_id proc in
+
     let p = Lang.ID.Map.find id p.prog.procs in
     Containers.IO.with_out "before.il" (fun f ->
         Containers_pp.Pretty.to_format (Format.of_chan f) ~width:80
@@ -42,9 +43,11 @@ let proc =
 let check_f = Term.(const check $ fname $ proc)
 
 let cmd =
+  Trace.set_process_name "main";
+  Trace.set_thread_name "t1";
   let doc = "obasil" in
   let info = Cmd.info "obasil" ~version:"alpha" ~doc in
   Cmd.v info check_f
 
 let main () = exit (Cmd.eval cmd)
-let () = main ()
+let () = Trace_tef.with_setup ~out:(`File "trace.json") () @@ fun () -> main ()

@@ -5,9 +5,14 @@ open Containers
 let identity x = x
 
 let simplify_proc_exprs p =
-  let blocks = Procedure.blocks_to_list p in
+  let blocks =
+    Trace.with_span ~__FILE__ ~__LINE__ "blocks_list" @@ fun i ->
+    Procedure.blocks_to_list p
+  in
+
   let open Procedure.Edge in
   let nblocks =
+    Trace.with_span ~__FILE__ ~__LINE__ "simplify_proc" @@ fun i ->
     List.iter
       (function
         | Procedure.Vert.Begin id, (b : (Var.t, Expr.BasilExpr.t) Block.t) ->

@@ -26,6 +26,8 @@
    ocaml
    zarith
    fix
+   trace
+   trace-tef
    containers
    containers-data
    ppx_deriving

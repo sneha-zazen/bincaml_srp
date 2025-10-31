@@ -17,7 +17,7 @@
   cf_tx
   )
  (flags -w -27)
- (libraries zarith fix ocamlgraph containers containers-data iter containers.pp)
+ (libraries zarith fix ocamlgraph containers containers-data iter containers.pp trace)
  (inline_tests)
  (preprocess
   (pps

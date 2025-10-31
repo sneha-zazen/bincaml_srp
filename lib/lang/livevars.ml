@@ -46,15 +46,20 @@ module LV =
       let join = V.union
 
       let analyze (e : edge) d =
+        Trace.with_span ~__FILE__ ~__LINE__ "analyze-edge-liveness" @@ fun _ ->
         match G.E.label e with Block b -> tf_block d b | _ -> d
     end)
 
-let run (p : Program.proc) = LV.analyze (function e -> V.empty) p.graph
+let run (p : Program.proc) =
+  Trace.with_span ~__FILE__ ~__LINE__ "analyze-proc-liveness" @@ fun _ ->
+  LV.analyze (function e -> V.empty) p.graph
+
 let label (r : G.vertex -> V.t) (v : G.vertex) = show_v (r v)
 let print_g res = Viscfg.dot_labels (fun v -> Some (label res v))
 
 let print_live_vars_dot fmt p =
   let r = run p in
+  Trace.with_span ~__FILE__ ~__LINE__ "dot-priner" @@ fun _ ->
   let (module M : Viscfg.ProcPrinter) =
     Viscfg.dot_labels (fun v -> Some (label r v))
   in
