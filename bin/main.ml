@@ -40,14 +40,18 @@ let dump_proc fname proc =
   print_proc stdout p
 
 let print_cfg fname proc =
-  let p = Ocaml_of_basil.Loadir.ast_of_fname fname in
-  let id = p.prog.proc_names.get_id proc in
-  let p = Lang.ID.Map.find id p.prog.procs in
+  let prg = Ocaml_of_basil.Loadir.ast_of_fname fname in
+  let id = prg.prog.proc_names.get_id proc in
+  let p = Lang.ID.Map.find id prg.prog.procs in
   (*Lang.Livevars.print_live_vars_dot Format.std_formatter p ; *)
-  Lang.Livevars.print_dse_dot Format.std_formatter p;
-  CCUnix.with_out "before.il" ~f:(fun c -> print_proc c p);
-  Lang.Livevars.DSE.transform p;
-  CCUnix.with_out "after.il" ~f:(fun c -> print_proc c p)
+  (*Lang.Livevars.print_dse_dot Format.std_formatter p; *)
+  CCUnix.with_out "before.il" ~f:(fun c ->
+      Lang.ID.Map.iter (fun i p -> print_proc c p) prg.prog.procs);
+  Lang.ID.Map.iter
+    (fun i p -> Lang.Livevars.DSE.sane_transform p)
+    prg.prog.procs;
+  CCUnix.with_out "after.il" ~f:(fun c ->
+      Lang.ID.Map.iter (fun i p -> print_proc c p) prg.prog.procs)
 
 let print_cfg_cmd =
   let doc = "print dot CFG for graph" in

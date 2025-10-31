@@ -180,11 +180,6 @@ module Block = struct
     let compare e a b = Vector.compare e a b
   end
 
-  module StmtID = struct
-    type t = ID.t * int [@@deriving ord, eq, show]
-    (** the index of a statement from the start or end of the block edge *)
-  end
-
   type ('v, 'e) t = {
     phis : 'v phi list;
         (** List of phi nodes simultaneously assigning each input variable *)

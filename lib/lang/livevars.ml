@@ -30,110 +30,6 @@ let tf_stmt_live init s =
 let tf_block (init : V.t) (b : (Var.t, BasilExpr.t) Block.t) =
   Block.fold_backwards ~f:tf_stmt_live ~phi:(fun f _ -> f) ~init b
 
-module DSE = struct
-  module StmtSet = Set.Make (Block.StmtID)
-  [@@deriving show]
-  (** simple intraprocedural dead-store-elim *)
-
-  type dse_domain = { live : V.t; dead : StmtSet.t } [@@deriving eq]
-
-  let pretty_dead v =
-    let open Containers_pp in
-    let open Containers_pp.Infix in
-    fill (text ", ")
-      (StmtSet.to_list v.dead |> List.map (fun s -> text @@ Block.StmtID.show s))
-
-  let show_dead v =
-    let open Containers_pp in
-    Pretty.to_string ~width:80 (pretty_dead v)
-
-  let default = { live = V.empty; dead = StmtSet.empty }
-
-  let join a b =
-    { live = V.union a.live b.live; dead = StmtSet.union a.dead b.dead }
-
-  let tf_block_dse bid (data : dse_domain) (b : (Var.t, BasilExpr.t) Block.t) :
-      dse_domain =
-    Block.foldi_backwards
-      ~f:(fun a (i, s) ->
-        let live = a.live in
-        let is_assign =
-          match s with Stmt.Instr_Assign _ -> true | _ -> false
-        in
-        let dead_store =
-          is_assign
-          && Stmt.iter_lvar s
-             |> Iter.for_all (fun v -> Var.is_local v && (not @@ V.mem v live))
-        in
-        let stid = (bid, i) in
-        let dead =
-          if dead_store then StmtSet.add stid a.dead
-          else if StmtSet.mem stid a.dead then StmtSet.remove stid a.dead
-          else a.dead
-        in
-        let live = V.filter Var.is_local @@ tf_stmt_live a.live s in
-        { live; dead })
-      b
-      ~phi:(fun x a -> x)
-      ~init:data
-
-  module G = Procedure.G
-
-  module A =
-    Graph.Fixpoint.Make
-      (G)
-      (struct
-        type vertex = G.E.vertex
-        type edge = G.E.t
-        type g = G.t
-        type data = dse_domain
-
-        let direction = Graph.Fixpoint.Backward
-        let equal = equal_dse_domain
-        let join = join
-
-        let analyze (e : edge) d =
-          match G.E.label e with
-          | Block b -> (
-              match G.E.src e with
-              | Begin id -> tf_block_dse id d b
-              | End id -> tf_block_dse id d b
-              | e -> failwith @@ Procedure.Vert.show e)
-          | _ -> d
-      end)
-
-  let analyse (p : Program.proc) =
-    let r =
-      Trace.with_span ~__FILE__ ~__LINE__ "analyze-proc-dse" @@ fun _ ->
-      A.analyze (function e -> default) p.graph
-    in
-    (r Procedure.Vert.Entry).dead
-
-  let transform (p : Program.proc) =
-    let blocks = Procedure.blocks_to_list p in
-
-    let open Procedure.Edge in
-    let dead_stores = analyse p in
-    Trace.with_span ~__FILE__ ~__LINE__ "dse_transform" @@ fun _ ->
-    List.iter
-      (function
-        | Procedure.Vert.Begin id, (b : (Var.t, Expr.BasilExpr.t) Block.t) ->
-            let deads =
-              StmtSet.filter (fun i -> ID.equal id (fst i)) dead_stores
-            in
-            let stmts =
-              Vector.mapi (fun i s -> (StmtSet.mem (id, i) deads, s)) b.stmts
-            in
-            let stmts =
-              Vector.filter_map
-                (function true, _ -> None | false, i -> Some i)
-                stmts
-            in
-            Procedure.update_block p id { b with stmts }
-        | _ -> ())
-      blocks
-end
-
 module G = Procedure.G
 
 module LV =
@@ -160,17 +56,6 @@ let run (p : Program.proc) =
 
 let label (r : G.vertex -> V.t) (v : G.vertex) = show_v (r v)
 let print_g res = Viscfg.dot_labels (fun v -> Some (label res v))
-
-let print_dse_dot fmt (p : Program.proc) =
-  let r =
-    Trace.with_span ~__FILE__ ~__LINE__ "analyze-proc-dse" @@ fun _ ->
-    DSE.A.analyze (function e -> DSE.default) p.graph
-  in
-  Trace.with_span ~__FILE__ ~__LINE__ "dot-priner" @@ fun _ ->
-  let (module M : Viscfg.ProcPrinter) =
-    Viscfg.dot_labels (fun v -> Some (DSE.show_dead (r v)))
-  in
-  M.fprint_graph fmt p.graph
 
 let print_live_vars_dot fmt p =
   let r = run p in
@@ -311,4 +196,41 @@ module Interproc = struct
     end) in
     Trace.with_span ~__FILE__ ~__LINE__ "liveness-solve-callgraph" @@ fun _ ->
     M.analyze (fun v -> default) callgraph
+end
+
+module DSE = struct
+  let filter_dead (live : V.t) (b : (Var.t, BasilExpr.t) Block.t) =
+    let r =
+      Block.fold_backwards
+        ~f:(fun (live, acc) s ->
+          let is_assign =
+            match s with Stmt.Instr_Assign _ -> true | _ -> false
+          in
+          let dead_store =
+            is_assign
+            && Stmt.iter_lvar s
+               |> Iter.for_all (fun v ->
+                      Var.is_local v && (not @@ V.mem v live))
+          in
+          let live = V.filter Var.is_local @@ tf_stmt_live live s in
+          let s = if dead_store then acc else s :: acc in
+          (live, s))
+        b
+        ~phi:(fun x a -> x)
+        ~init:(live, [])
+    in
+    Vector.of_list (snd r)
+
+  let sane_transform (p : Program.proc) =
+    let live = LV.analyze (function e -> V.empty) p.graph in
+    let blocks = Procedure.blocks_to_list p in
+    Trace.with_span ~__FILE__ ~__LINE__ "dse_transform" @@ fun _ ->
+    List.iter
+      (function
+        | ( (Procedure.Vert.Begin id as v),
+            (b : (Var.t, Expr.BasilExpr.t) Block.t) ) ->
+            let stmts = filter_dead (live v) b in
+            Procedure.update_block p id { b with stmts }
+        | _ -> ())
+      blocks
 end
