@@ -43,7 +43,7 @@ let dump_proc fname proc =
 let print_cfg fname proc =
   let prg = Ocaml_of_basil.Loadir.ast_of_fname fname in
   let id = prg.prog.proc_names.get_id proc in
-  let p = Lang.ID.Map.find id prg.prog.procs in
+  let _ = Lang.ID.Map.find id prg.prog.procs in
   (*Lang.Livevars.print_live_vars_dot Format.std_formatter p ; *)
   (*Lang.Livevars.print_dse_dot Format.std_formatter p; *)
   CCUnix.with_out "before.il" ~f:(fun c ->

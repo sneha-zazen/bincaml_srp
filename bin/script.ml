@@ -18,14 +18,16 @@ let get_prog s = Option.get_exn_or "no program loaded" s.prog
 let of_cmd st (e : Containers.Sexp.t) =
   let cmd, args =
     match e with
+    | `List [] -> ("skip", [])
     | `List (`Atom cmd :: n) -> (cmd, n)
     | _ -> failwith "bad cmd structure"
   in
   match cmd with
+  | "skip" -> st
   | "load-il" ->
       let fname = List.hd (assert_atoms 1 args) in
       let p = Ocaml_of_basil.Loadir.ast_of_fname fname in
-      { st with prog = Some p.prog }
+      { prog = Some p.prog }
   | "list-procs" ->
       let open Program in
       Lang.ID.Map.iter
@@ -67,7 +69,11 @@ let of_cmd st (e : Containers.Sexp.t) =
   | e -> failwith @@ "not a command : " ^ e
 
 let of_str st (e : string) =
-  let s = CCSexp.parse_string e in
+  let str_comment =
+    try String.index_from e 0 ';' with Not_found -> String.length e
+  in
+  let e = String.sub e 0 str_comment in
+  let s = match e with "" -> Ok (`List []) | e -> CCSexp.parse_string e in
   let s =
     match s with
     | Ok e -> e
