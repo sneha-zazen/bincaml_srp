@@ -536,6 +536,33 @@ module Program = struct
     output_string chan @@ Containers_pp.Pretty.to_string ~width:80 p;
     output_string chan ";"
 
+  let prog_pretty (p : t) =
+    let open Containers_pp in
+    let open Containers_pp.Infix in
+    let globs =
+      Var.Decls.to_list p.globals
+      |> List.map (fun (n, v) -> text @@ Var.to_decl_string_il v)
+    in
+    let n =
+      p.entry_proc
+      |> Option.map (fun i -> text "prog entry " ^ text @@ ID.to_string i)
+      |> Option.to_list
+    in
+    let pretty =
+      append_l ~sep:(text ";\n")
+      @@ globs @ n
+      @ List.map
+          (fun (_, p) ->
+            Procedure.pretty Var.to_string_il_rvar Expr.BasilExpr.to_string p)
+          (ID.Map.to_list p.procs)
+    in
+    pretty
+
+  let pretty_to_chan chan (p : t) =
+    let p = prog_pretty p in
+    output_string chan @@ Containers_pp.Pretty.to_string ~width:80 p;
+    output_string chan ";"
+
   let decl_global p = Var.Decls.add p.globals
 
   let empty ?name () =

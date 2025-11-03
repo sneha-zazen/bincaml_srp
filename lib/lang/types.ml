@@ -66,10 +66,12 @@ module BType = struct
     | Top -> "⊤"
     | Nothing -> "⊥"
     | Map ((Map _ as a), (Map _ as b)) ->
-        "(" ^ to_string a ^ ")" ^ "->" ^ "(" ^ to_string b ^ ")"
-    | Map ((Map _ as a), b) -> "(" ^ to_string a ^ ")" ^ "->" ^ to_string b
-    | Map (a, (Map _ as b)) -> "(" ^ to_string a ^ ")" ^ "->" ^ to_string b
-    | Map (a, b) -> to_string a ^ "->" ^ to_string b
+        "(" ^ "(" ^ to_string a ^ ")" ^ "->" ^ "(" ^ to_string b ^ ")" ^ ")"
+    | Map ((Map _ as a), b) ->
+        "(" ^ ("(" ^ to_string a ^ ")" ^ "->" ^ to_string b) ^ ")"
+    | Map (a, (Map _ as b)) ->
+        "(" ^ ("(" ^ to_string a ^ ")" ^ "->" ^ to_string b) ^ ")"
+    | Map (a, b) -> "(" ^ (to_string a ^ "->" ^ to_string b) ^ ")"
 
   let show (b : t) = to_string b
   let pp fmt b = Format.pp_print_string fmt (show b)

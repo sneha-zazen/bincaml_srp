@@ -48,6 +48,10 @@ let to_string_il_rvar v =
   if match typ v with Types.BType.Map _ -> true | _ -> false then name v
   else to_string v
 
+let to_decl_string_il v =
+  let decl_n = match typ v with Types.BType.Map _ -> "memory" | _ -> "var" in
+  decl_n ^ " " ^ to_string v
+
 module Set = CCHashSet.Make (V)
 (**FIXME: these do not use the hash-consign*)
 
