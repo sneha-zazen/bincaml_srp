@@ -14,7 +14,7 @@ module Params = struct
   let show_actual a =
     M.to_list a
     |> List.map (function k, v ->
-           Printf.sprintf "%s -> %s" k (BasilExpr.to_string v))
+        Printf.sprintf "%s -> %s" k (BasilExpr.to_string v))
     |> String.concat ", "
     |> fun x -> "(" ^ x ^ ")"
 
@@ -45,29 +45,50 @@ module Stmt = struct
   let pp_endian fmt e = Format.pp_print_string fmt (show_endian e)
 
   type ('lvar, 'var, 'expr) t =
-    | Instr_Assign of ('lvar * 'expr) list  (** simultaneous assignment *)
+    | Instr_Assign of ('lvar * 'expr) list
+        (** simultaneous assignment of expr snd to lvar fst*)
     | Instr_Assert of { body : 'expr }  (** assertions *)
-    | Instr_Assume of { body : 'expr; branch : bool }  (** load from memory *)
-    | Instr_Load of { lhs : 'lvar; mem : 'var; addr : 'expr; endian : endian }
-        (** effectful operation calling a named intrinsic*)
-    | Instr_IntrinCall of {
-        lhs : 'lvar Params.M.t;
-        name : string;
-        args : 'expr Params.M.t;
-      }  (** a store to memory *)
+    | Instr_Assume of { body : 'expr; branch : bool }
+        (** assumption; or branch guard *)
+    | Instr_Load of {
+        lhs : 'lvar;
+        mem : 'var;
+        addr : 'expr;
+        cells : int;
+        endian : endian;
+      }
+        (** a load from memory index [addr] up to of [addr] + [cells] (byte
+            swapped depending on endiannesss, and concatenated and stored into
+            [lhs]*)
     | Instr_Store of {
         mem : 'var;
         addr : 'expr;
         value : 'expr;
+        cells : int;
         endian : endian;
       }
+        (** a store into memory indexes [addr] up to of [addr] + [cells] (of
+            [value] byte swapped depending on endiannesss*)
+    | Instr_IntrinCall of {
+        lhs : 'lvar Params.M.t;
+        name : string;
+        args : 'expr Params.M.t;
+      }  (** effectful operation calling a named intrinsic*)
     | Instr_Return of { args : 'expr Params.M.t }
+        (** return to caller with [args] as return values (bound to the formal
+            out parameters of this procedure)*)
     | Instr_Call of {
         lhs : 'lvar Params.M.t;
         procid : ID.t;
         args : 'expr Params.M.t;
       }
+        (** call a procedure with the args, assigning its return parameters to
+            lhs *)
     | Instr_IndirectCall of { target : 'expr }
+        (** call to the address of a procedure or block stored in [target], due
+            to its nature local behaviour is not captured and hence will have
+            incorrect semantics unless all behaviour in the IR is encoded as
+            global effects *)
   [@@deriving eq, ord, map]
 
   let map ~f_lvar ~f_expr ~f_rvar e = map f_lvar f_rvar f_expr e
@@ -136,14 +157,17 @@ module Stmt = struct
     | Instr_Assert { body } -> text "assert " ^ body
     | Instr_Assume { body; branch = false } -> text "assume " ^ body
     | Instr_Assume { body; branch = true } -> text "guard " ^ body
-    | Instr_Load { lhs; mem; addr; endian } ->
+    | Instr_Load { lhs; mem; addr; cells; endian } ->
         lhs ^ text " := " ^ text "load "
         ^ text (show_endian endian)
-        ^ text " " ^ mem ^ text " " ^ addr
-    | Instr_Store { mem; addr; value; endian } ->
+        ^ text " " ^ mem ^ text " " ^ addr ^ text " " ^ int cells
+    | Instr_Store { mem; addr; value; cells; endian } ->
         text "store "
         ^ text (show_endian endian)
-        ^ text " " ^ mem ^ text " " ^ addr ^ text " " ^ value
+        ^ text " " ^ mem ^ text " " ^ addr ^ text " " ^ value ^ text " "
+        ^ int cells
+    | Instr_IntrinCall { lhs; name; args } when Params.M.cardinal lhs = 0 ->
+        append_l ~sep:nil [ text "call "; text name; param_list args ]
     | Instr_IntrinCall { lhs; name; args } ->
         append_l ~sep:nil
           [
@@ -152,6 +176,9 @@ module Stmt = struct
             text name;
             param_list args;
           ]
+    | Instr_Call { lhs; procid; args } when Params.M.cardinal lhs = 0 ->
+        let n = ID.to_string procid in
+        append_l ~sep:nil [ text "call "; text n; param_list args ]
     | Instr_Call { lhs; procid; args } ->
         let n = ID.to_string procid in
         append_l ~sep:nil
@@ -504,6 +531,11 @@ module Program = struct
     proc_names : ID.generator;
   }
 
+  let proc_pretty chan p =
+    let p = Procedure.pretty Var.to_string_il_rvar Expr.BasilExpr.to_string p in
+    output_string chan @@ Containers_pp.Pretty.to_string ~width:80 p;
+    output_string chan ";"
+
   let decl_global p = Var.Decls.add p.globals
 
   let empty ?name () =
@@ -552,8 +584,8 @@ module Program = struct
         Procedure.blocks_to_list p |> List.to_iter |> Iter.map snd
         |> Iter.flat_map Block.stmts_iter
         |> Iter.filter_map (function
-             | Stmt.Instr_Call { procid } -> Some procid
-             | _ -> None)
+          | Stmt.Instr_Call { procid } -> Some procid
+          | _ -> None)
         |> ID.Set.of_iter
       in
       let calls =
@@ -571,10 +603,8 @@ module Program = struct
       Iter.iter (G.add_edge_e graph) proc_edges;
       t.entry_proc
       |> Option.iter (fun entry ->
-             List.iter (G.add_edge_e graph)
-               [
-                 (Entry, Nop, ProcBegin entry); (ProcReturn entry, Nop, Return);
-               ]);
+          List.iter (G.add_edge_e graph)
+            [ (Entry, Nop, ProcBegin entry); (ProcReturn entry, Nop, Return) ]);
       let call_dep caller callee =
         Iter.of_list
           [

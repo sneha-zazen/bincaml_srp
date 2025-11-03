@@ -280,6 +280,12 @@ module BasilExpr = struct
     function
     | RVar v -> Var.to_string v
     | Constant c -> AllOps.to_string c
+    | UnaryExpr (`ZeroExtend bits, e) ->
+        Printf.sprintf "zero_extend(%d, " bits ^ e ^ ")"
+    | UnaryExpr (`SignExtend bits, e) ->
+        Printf.sprintf "sign_extend(%d, " bits ^ e ^ ")"
+    | UnaryExpr (`Extract (hi, lo), e) ->
+        Printf.sprintf "extract(%d, %d, " hi lo ^ e ^ ")"
     | UnaryExpr (op, e) -> AllOps.to_string op ^ "(" ^ e ^ ")"
     | BinaryExpr (op, e, e2) -> AllOps.to_string op ^ "(" ^ e ^ ", " ^ e2 ^ ")"
     | ApplyIntrin (op, es) ->

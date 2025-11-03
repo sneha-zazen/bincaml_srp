@@ -16,8 +16,8 @@ let proc =
 
 let print_proc chan p =
   let p =
-    Lang.Prog.Procedure.pretty Lang.Var.to_string Lang.Expr.BasilExpr.to_string
-      p
+    Prog.Procedure.pretty Lang.Var.to_string_il_rvar
+      Lang.Expr.BasilExpr.to_string p
   in
   output_string chan @@ Containers_pp.Pretty.to_string ~width:80 p
 

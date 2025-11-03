@@ -4,12 +4,7 @@ open Prog
 
 exception Parse
 
-let print_proc chan p =
-  let p =
-    Lang.Prog.Procedure.pretty Lang.Var.to_string Lang.Expr.BasilExpr.to_string
-      p
-  in
-  output_string chan @@ Containers_pp.Pretty.to_string ~width:80 p
+let print_proc chan p = Prog.Program.proc_pretty chan p
 
 let assert_atoms n args =
   assert (List.length args = n);

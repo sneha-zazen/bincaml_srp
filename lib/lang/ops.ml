@@ -53,7 +53,7 @@ module BVOps = struct
 
   let eval_const = function `Bitvector b -> b
 
-  type unary_bool = [ `BOOL2BV1 ]
+  type unary_bool = [ `BOOLTOBV1 ]
   [@@deriving show { with_path = false }, eq, ord]
 
   type unary_unif =
@@ -69,7 +69,7 @@ module BVOps = struct
 
   let eval_unary_bool (o : unary_bool) =
     match o with
-    | `BOOL2BV1 -> (
+    | `BOOLTOBV1 -> (
         function true -> PrimQFBV.true_bv | false -> PrimQFBV.false_bv)
 
   let eval_unary_unif (o : unary_unif) =
@@ -250,7 +250,7 @@ module AllOps = struct
     | `BoolNOT -> return Boolean
     | `Exists -> return Boolean
     | `BVNOT -> return a
-    | `BOOL2BV1 -> return @@ Bitvector 1
+    | `BOOLTOBV1 -> return @@ Bitvector 1
     | `Extract (hi, lo) -> return (Bitvector (hi - lo))
 
   let ret_type_bin (o : binary) l r =
@@ -322,14 +322,14 @@ module AllOps = struct
     | `BVSMOD -> "bvsmod"
     | `INTLT -> "intlt"
     | `IMPLIES -> "implies"
-    | `OR -> "or"
+    | `OR -> "boolor"
     | `INTLE -> "intle"
     | `BVULT -> "bvult"
-    | `AND -> "and"
+    | `AND -> "booland"
     | `INTSUB -> "intsub"
     | `BVULE -> "bvule"
-    | `BOOL2BV1 -> "bool2bv1"
-    | `BoolNOT -> "not"
+    | `BOOLTOBV1 -> "booltobv1"
+    | `BoolNOT -> "boolnot"
     | `BVSLT -> "bvslt"
 
   let eval_equal (a : const) (b : const) =

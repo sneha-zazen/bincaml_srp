@@ -234,11 +234,19 @@ module BasilASTLoader = struct
           Option.get_exn_or ("memory undefined: " ^ n)
           @@ Var.Decls.find_opt p_st.prog.globals n
         in
+        let cells = transIntVal intval |> Z.to_int in
         `Stmt
           (Instr_Load
-             { lhs = transLVar p_st lvar; mem; addr = trans_expr expr; endian })
+             {
+               lhs = transLVar p_st lvar;
+               mem;
+               addr = trans_expr expr;
+               endian;
+               cells;
+             })
     | Stmt_Store (endian, bident, addr, value, intval) ->
         let endian = trans_endian endian in
+        let cells = transIntVal intval |> Z.to_int in
         let mem =
           let n = unsafe_unsigil (`Global bident) in
           Option.get_exn_or ("memory undefined: " ^ n)
@@ -246,7 +254,13 @@ module BasilASTLoader = struct
         in
         `Stmt
           (Instr_Store
-             { mem; addr = trans_expr addr; value = trans_expr value; endian })
+             {
+               mem;
+               addr = trans_expr addr;
+               value = trans_expr value;
+               cells;
+               endian;
+             })
     | Stmt_DirectCall (calllvars, bident, exprs) ->
         let n = unsafe_unsigil (`Proc bident) in
         let procid = p_st.prog.proc_names.get_id n in
@@ -381,7 +395,7 @@ module BasilASTLoader = struct
         | `BVXNOR -> BasilExpr.boolnot (BasilExpr.binexp ~op:`BVXOR e1 e2)
         | `BVNOR -> BasilExpr.boolnot (BasilExpr.binexp ~op:`BVOR e1 e2)
         | `BVCOMP ->
-            BasilExpr.unexp ~op:`BOOL2BV1 (BasilExpr.binexp ~op:`EQ e1 e2)
+            BasilExpr.unexp ~op:`BOOLTOBV1 (BasilExpr.binexp ~op:`EQ e1 e2)
         | `INTGE -> BasilExpr.boolnot (BasilExpr.binexp ~op:`INTLT e1 e2)
         | `INTGT -> BasilExpr.boolnot (BasilExpr.binexp ~op:`INTLE e1 e2))
     | Expr_Unary (unop, expr) ->
@@ -438,7 +452,7 @@ module BasilASTLoader = struct
     | UnOpBVUnOp bvunop -> transBVUnOp bvunop
     | UnOp_boolnot -> `BoolNOT
     | UnOp_intneg -> `INTNEG
-    | UnOp_booltobv1 -> `BOOL2BV1
+    | UnOp_booltobv1 -> `BOOLTOBV1
 
   and transBVUnOp (x : bVUnOp) =
     match x with BVUnOp_bvnot -> `BVNOT | BVUnOp_bvneg -> `BVNEG

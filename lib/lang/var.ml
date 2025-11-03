@@ -44,6 +44,10 @@ let hash (a : t) = Fix.HashCons.hash a
 let is_local (v : t) = equal_declaration_scope (scope v) Local
 let is_global (v : t) = equal_declaration_scope (scope v) Global
 
+let to_string_il_rvar v =
+  if match typ v with Types.BType.Map _ -> true | _ -> false then name v
+  else to_string v
+
 module Set = CCHashSet.Make (V)
 (**FIXME: these do not use the hash-consign*)
 
