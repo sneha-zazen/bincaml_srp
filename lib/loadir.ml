@@ -404,7 +404,7 @@ module BasilASTLoader = struct
     | Expr_Literal (Value_BV (BVVal1 (intval, BVType1 bvtype))) ->
         BasilExpr.bvconst
           (match transBVTYPE bvtype with
-          | Bitvector width -> PrimQFBV.create ~width (transIntVal intval)
+          | Bitvector size -> PrimQFBV.create ~size (transIntVal intval)
           | _ -> failwith "unreachable")
     | Expr_Literal (Value_Int intval) -> BasilExpr.intconst (transIntVal intval)
     | Expr_Literal Value_True -> BasilExpr.boolconst true

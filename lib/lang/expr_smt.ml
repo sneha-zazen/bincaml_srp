@@ -172,7 +172,7 @@ module SMTLib2 = struct
           [
             atom "_";
             atom @@ "bv" ^ (PrimQFBV.value i |> Z.to_string);
-            atom @@ Int.to_string @@ PrimQFBV.width i;
+            atom @@ Int.to_string @@ PrimQFBV.size i;
           ]
     | `EQ -> atom "="
     | #Ops.AllOps.unary as o -> atom @@ Ops.AllOps.to_string o
@@ -228,7 +228,7 @@ module SMTLib2 = struct
     let e =
       binexp ~op:`EQ
         (unexp ~op:(`SignExtend 10) (bvconst (PrimQFBV.ones ~size:3)))
-        (bvconst @@ PrimQFBV.of_int ~width:13 100)
+        (bvconst @@ PrimQFBV.of_int ~size:13 100)
     in
     print_endline (to_string e);
     let smt = assert_bexpr e in

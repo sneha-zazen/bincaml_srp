@@ -47,14 +47,10 @@ module LV =
       let join = V.union
 
       let analyze (e : edge) d =
-        Trace.with_span ~__FILE__ ~__LINE__ "analyze-edge-liveness" @@ fun _ ->
         match G.E.label e with Block b -> tf_block d b | _ -> d
     end)
 
-let run (p : Program.proc) =
-  Trace.with_span ~__FILE__ ~__LINE__ "analyze-proc-liveness" @@ fun _ ->
-  LV.analyze (function e -> V.empty) p.graph
-
+let run (p : Program.proc) = LV.analyze (function e -> V.empty) p.graph
 let label (r : G.vertex -> V.t) (v : G.vertex) = show_v (r v)
 let print_g res = Viscfg.dot_labels (fun v -> Some (label res v))
 
@@ -79,7 +75,7 @@ let%expect_test _ =
   in
   let exp = BasilExpr.forall ~bound:[ rvar v1 ] (binexp ~op:`EQ (rvar v2) e1) in
   print_endline (to_string exp);
-  let sub v = Some (bvconst (Value.PrimQFBV.of_int ~width:5 150)) in
+  let sub v = Some (bvconst (Value.PrimQFBV.of_int ~size:5 150)) in
   let e2 = BasilExpr.substitute sub exp in
   print_endline (to_string e2);
   [%expect
@@ -225,7 +221,6 @@ module DSE = struct
   let sane_transform (p : Program.proc) =
     let live = LV.analyze (function e -> V.empty) p.graph in
     let blocks = Procedure.blocks_to_list p in
-    Trace.with_span ~__FILE__ ~__LINE__ "dse_transform" @@ fun _ ->
     List.iter
       (function
         | ( (Procedure.Vert.Begin id as v),

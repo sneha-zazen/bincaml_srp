@@ -229,7 +229,7 @@ module AllOps = struct
     match o with
     | `Bool _ -> return Boolean
     | `Integer _ -> return Integer
-    | `Bitvector v -> return (Bitvector (PrimQFBV.width v))
+    | `Bitvector v -> return (Bitvector (PrimQFBV.size v))
 
   let ret_type_unary (o : unary) a =
     let open Types.BType in

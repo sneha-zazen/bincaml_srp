@@ -51,7 +51,7 @@ module ExprGen = struct
       QCheck.Gen.int_range min
         (Value.PrimQFBV.ones ~size:w |> Value.PrimQFBV.value |> Z.to_int)
     in
-    return (Value.PrimQFBV.of_int ~width:w v)
+    return (Value.PrimQFBV.of_int ~size:w v)
 
   let arb_bvconst ?min w =
     let* c = arb_bv ?min w in

@@ -295,8 +295,8 @@ module BasilExpr = struct
   let boolconst (v : bool) : t = const (`Bool v)
   let bvconst (v : PrimQFBV.t) : t = const (`Bitvector v)
 
-  let bv_of_int ~(width : int) (v : int) : t =
-    const (`Bitvector (PrimQFBV.of_int ~width v))
+  let bv_of_int ~(size : int) (v : int) : t =
+    const (`Bitvector (PrimQFBV.of_int ~size v))
 
   let rewrite ~(rw_fun : t abstract_expr -> t option) (expr : t) =
     let rw_alg e =
@@ -313,6 +313,7 @@ module BasilExpr = struct
     in
     fold_with_type rw_alg expr
 
+  (** typed expression rewriter *)
   let rewrite_typed (f : (t * Types.BType.t) abstract_expr -> t option)
       (expr : t) =
     let rw_alg e =
@@ -321,7 +322,8 @@ module BasilExpr = struct
     in
     fold_with_type rw_alg expr
 
-  let rewrite_2l
+  (** typed rewriter that expands two layers deep into the expression *)
+  let rewrite_typed_two
       (f : (t abstract_expr * Types.BType.t) abstract_expr -> t option)
       (expr : t) =
     let orig s = fix @@ AbstractExpr.map fst s in

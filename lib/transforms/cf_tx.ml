@@ -6,20 +6,16 @@ open Containers
 let identity x = x
 
 let simplify_proc_exprs p =
-  let blocks =
-    Trace.with_span ~__FILE__ ~__LINE__ "blocks_list" @@ fun i ->
-    Procedure.blocks_to_list p
-  in
+  let blocks = Procedure.blocks_to_list p in
 
   let open Procedure.Edge in
-  Trace.with_span ~__FILE__ ~__LINE__ "simplify_proc_replace" @@ fun i ->
   List.iter
     (function
       | Procedure.Vert.Begin id, (b : (Var.t, Expr.BasilExpr.t) Block.t) ->
           let stmts =
             Vector.map
               (Stmt.map ~f_lvar:identity ~f_rvar:identity
-                 ~f_expr:partial_eval_expr)
+                 ~f_expr:Algsimp.alg_simp_rewriter)
               b.stmts
           in
           Procedure.update_block p id { b with stmts }

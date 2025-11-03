@@ -2,6 +2,8 @@ open Containers
 open Lang
 open Prog
 
+exception Parse
+
 let print_proc chan p =
   let p =
     Lang.Prog.Procedure.pretty Lang.Var.to_string Lang.Expr.BasilExpr.to_string
@@ -29,6 +31,12 @@ let of_cmd st (e : Containers.Sexp.t) =
       let fname = List.hd (assert_atoms 1 args) in
       let p = Ocaml_of_basil.Loadir.ast_of_fname fname in
       { st with prog = Some p.prog }
+  | "list-procs" ->
+      let open Program in
+      Lang.ID.Map.iter
+        (fun i _ -> Printf.printf "%s\n" (ID.show i))
+        (get_prog st).procs;
+      st
   | "dump-proc-il" ->
       let proc = List.hd (assert_atoms 1 args) in
       let id = (get_prog st).proc_names.get_id proc in

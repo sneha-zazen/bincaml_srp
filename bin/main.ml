@@ -1,7 +1,8 @@
-open Cmdliner
 open Lang.Prog
 open Containers
 open Lang
+open Cmdliner
+open Cmdliner.Term.Syntax
 
 let () = Printexc.record_backtrace true
 

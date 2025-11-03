@@ -19,7 +19,7 @@ module PrimInt = struct
 end
 
 module PrimQFBV = struct
-  (* representation of bitvector positive Z.t and an explicit width*)
+  (* representation of bitvector positive Z.t and an explicit size*)
 
   type t = { w : int; v : Z.t }
 
@@ -32,7 +32,7 @@ module PrimQFBV = struct
   let zero ~(size : int) = { w = size; v = Z.zero }
   let empty = zero ~size:0
   let is_zero b = Z.equal Z.zero b.v
-  let width (x : t) = match x with { w; v } -> w
+  let size (x : t) = match x with { w; v } -> w
   let value (b : t) : Z.t = match b with { w; v } -> v
   let to_signed_bigint b = z_signed_extract b.v 0 b.w
   let to_unsigned_bigint b = z_extract b.v 0 b.w
@@ -45,16 +45,16 @@ module PrimQFBV = struct
   let compare a b =
     Int.compare a.w b.w |> function 0 -> Z.compare a.v b.v | o -> o
 
-  let create ~(width : int) (v : Z.t) : t =
-    assert (width >= 0);
-    let v = z_extract v 0 width in
-    { w = width; v }
+  let create ~(size : int) (v : Z.t) : t =
+    assert (size >= 0);
+    let v = z_extract v 0 size in
+    { w = size; v }
 
-  let of_int ~(width : int) i =
-    assert (width >= 0);
+  let of_int ~(size : int) i =
+    assert (size >= 0);
     let v = Z.of_int i in
     assert (Z.geq v (Z.of_int 0));
-    create ~width v
+    create ~size v
 
   let of_string i =
     let vty = String.split_on_char ':' i in
@@ -62,31 +62,31 @@ module PrimQFBV = struct
       match vty with
       | [ v; ty ] -> (
           String.to_seq ty |> List.of_seq |> function
-          | 'b' :: 'v' :: width ->
-              let width =
+          | 'b' :: 'v' :: size ->
+              let size =
                 Z.of_string
-                  (String.concat "" (List.map (fun i -> String.make 1 i) width))
+                  (String.concat "" (List.map (fun i -> String.make 1 i) size))
                 |> Z.to_int
               in
-              (width, Z.of_string v)
+              (size, Z.of_string v)
           | _ -> failwith "invalid format")
       | _ -> failwith "invalid format"
     in
     { w; v }
 
-  let size_is_equal a b = assert (width a = width b) [@@inline always]
-  let bind f a = create ~width:a.w (f a.v) [@@inline always]
+  let size_is_equal a b = assert (size a = size b) [@@inline always]
+  let bind f a = create ~size:a.w (f a.v) [@@inline always]
 
   (* wrap bv operation *)
   let bind2 f a b =
     size_is_equal a b;
-    create ~width:a.w (f a.v b.v)
+    create ~size:a.w (f a.v b.v)
   [@@inline always]
 
   (* wrap signed bv operation *)
   let bind2_signed f a b =
     size_is_equal a b;
-    create ~width:a.w (f (to_signed_bigint a) (to_signed_bigint b))
+    create ~size:a.w (f (to_signed_bigint a) (to_signed_bigint b))
   [@@inline always]
 
   let map2 f a b =
@@ -106,7 +106,7 @@ module PrimQFBV = struct
   let udiv a b =
     size_is_equal a b;
     let v = if Z.equal b.v Z.zero then Z.minus_one else Z.div a.v b.v in
-    create ~width:a.w v
+    create ~size:a.w v
 
   let sdiv a b = bind2_signed Z.div a b
   let srem a b = bind2_signed Z.rem a b
@@ -146,7 +146,7 @@ module PrimQFBV = struct
   let zero_extend ~(extension : int) b = { w = b.w + extension; v = b.v }
 
   let shl a b =
-    if Z.gt b.v (Z.of_int a.w) then zero ~size:(width a)
+    if Z.gt b.v (Z.of_int a.w) then zero ~size:(size a)
     else { w = a.w; v = z_extract (Z.shift_left a.v (Z.to_int b.v)) 0 a.w }
 
   let sign_extend ~(extension : int) b =
