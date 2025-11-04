@@ -29,6 +29,7 @@
    trace
    trace-tef
    containers
+   iter
    containers-data
    ppx_deriving
    ocamlgraph
