@@ -23,11 +23,11 @@ module BasilASTLoader = struct
   type loaded_block =
     | LBlock of
         (string
-        * Program.stmt list
-        * [ `Return of Program.e list
-          | `Goto of string list
-          | `None
-          | `ReturnNamed of (string * Program.e) list ])
+        * [ `Stmt of Program.stmt
+          | `Return of Program.e list
+          | `ReturnNamed of (string * Program.e) list ]
+          list
+        * [ `Goto of string list | `None | `Return ])
 
   let failure x = failwith "Undefined case." (* x discarded *)
   let stripquote s = String.sub s 1 (String.length s - 2)
@@ -167,6 +167,22 @@ module BasilASTLoader = struct
               match b with
               | LBlock (name, stmts, succ) ->
                   let stmts = stmts in
+                  let stmts =
+                    stmts
+                    |> List.map (function
+                      | `Stmt s -> s
+                      | `ReturnNamed exprs ->
+                          let args = StringMap.of_list exprs in
+                          Stmt.(Instr_Return { args })
+                      | `Return exprs ->
+                          let args =
+                            List.combine formal_out_params_order exprs
+                            |> List.map (function (name, var), expr ->
+                                (name, expr))
+                            |> StringMap.of_list
+                          in
+                          Stmt.(Instr_Return { args }))
+                  in
                   let p, bid = Procedure.decl_block_exn p name ~stmts () in
                   (p, (name, bid) :: a))
             (p, []) blocks
@@ -190,24 +206,17 @@ module BasilASTLoader = struct
               | LBlock (name, _, succ) -> (
                   match succ with
                   | `None -> p
+                  | `Return ->
+                      let f = StringMap.find name block_label_id in
+                      Procedure.map_graph
+                        (fun g -> Procedure.G.add_edge g (End f) Return)
+                        p
                   | `Goto tgts ->
                       let f = StringMap.find name block_label_id in
                       let succ =
                         List.map (fun c -> StringMap.find c block_label_id) tgts
                       in
-                      Procedure.add_goto p ~from:f ~targets:succ
-                  | `ReturnNamed exprs ->
-                      let f = StringMap.find name block_label_id in
-                      let args = StringMap.of_list exprs in
-                      Procedure.add_return p ~from:f ~args
-                  | `Return exprs ->
-                      let args =
-                        List.combine formal_out_params_order exprs
-                        |> List.map (function (name, var), expr -> (name, expr))
-                        |> StringMap.of_list
-                      in
-                      let f = StringMap.find name block_label_id in
-                      Procedure.add_return p ~from:f ~args))
+                      Procedure.add_goto p ~from:f ~targets:succ))
             p blocks
         in
         map_prog
@@ -231,7 +240,7 @@ module BasilASTLoader = struct
     | IntVal_Dec (IntegerDec (_, i)) -> Z.of_string i
 
   and trans_endian (x : BasilIR.AbsBasilIR.endian) =
-    match x with Endian_Little -> `Big | Endian_Big -> `Little
+    match x with Endian_Little -> `Little | Endian_Big -> `Big
 
   and trans_stmt (p_st : load_st) (x : BasilIR.AbsBasilIR.stmtWithAttrib) =
     let stmt = match x with StmtWithAttrib1 (stmt, _) -> stmt in
@@ -384,9 +393,16 @@ module BasilASTLoader = struct
           endlist ) ->
         let stmts =
           List.map (trans_stmt prog) statements
-          |> List.map (function `Call c -> c | `Stmt c -> c)
+          |> List.map (function `Call c -> `Stmt c | `Stmt c -> `Stmt c)
         in
         let succ = trans_jump jump in
+        let succ, stmts =
+          match (succ, stmts) with
+          | (`Return _ as r), s -> (`Return, s @ [ r ])
+          | (`ReturnNamed _ as r), s -> (`Return, s @ [ r ])
+          | `None, s -> (`None, s)
+          | `Goto g, s -> (`Goto g, s)
+        in
         LBlock (name, stmts, succ)
 
   and param_to_lvar (pp : params) : Var.t =

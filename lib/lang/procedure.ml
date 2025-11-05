@@ -230,16 +230,6 @@ let fresh_block p ?name ?(phis = []) ~(stmts : ('var, 'var, 'expr) Stmt.t list)
   let id = (block_ids p).fresh ~name () in
   (add_block p id ~phis ~stmts ~successors (), id)
 
-let add_return p ~(from : ID.t) ~(args : BasilExpr.t StringMap.t) =
-  let open Vert in
-  let fr = End from in
-  let b =
-    Edge.(
-      Block
-        { phis = []; stmts = Vector.of_list [ Stmt.(Instr_Return { args }) ] })
-  in
-  p |> map_graph (fun g -> G.add_edge_e g (fr, b, Return))
-
 let get_entry_block p id =
   let open Edge in
   let open G in
@@ -351,8 +341,8 @@ let pretty show_lvar show_var show_expr p =
                       Stmt.pretty show_lvar show_var show_expr s ^ text ";")
                     stmts
                   |> Vector.to_list
-              | _ -> failwith "bad return")
-          | [] -> [ text "unreachable;" ]
+              | _ -> [])
+          | [] -> [ text "unreachable" ]
           | succ ->
               let succ =
                 List.map
@@ -364,8 +354,7 @@ let pretty show_lvar show_var show_expr p =
               in
               [
                 text "goto "
-                ^ (fun s -> bracket "(" (fill (text ",") s) ")") succ
-                ^ text ";";
+                ^ (fun s -> bracket "(" (fill (text ",") s) ")") succ;
               ]
         in
         let b =
