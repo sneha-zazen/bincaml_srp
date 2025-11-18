@@ -16,7 +16,7 @@ let proc =
 let print_proc chan p = Program.output_proc_pretty chan p
 
 let list_procs fname =
-  let p = Ocaml_of_basil.Loadir.ast_of_fname fname in
+  let p = Bincaml.Loadir.ast_of_fname fname in
   let procs prog =
     let open Program in
     Lang.ID.Map.iter (fun i _ -> Printf.printf "%s\n" (ID.show i)) prog.procs
@@ -29,13 +29,13 @@ let procs_cmd =
   Cmd.v info Term.(const list_procs $ fname)
 
 let dump_proc fname proc =
-  let p = Ocaml_of_basil.Loadir.ast_of_fname fname in
+  let p = Bincaml.Loadir.ast_of_fname fname in
   let id = p.prog.proc_names.get_id proc in
   let p = Lang.ID.Map.find id p.prog.procs in
   print_proc stdout p
 
 let print_cfg fname proc =
-  let prg = Ocaml_of_basil.Loadir.ast_of_fname fname in
+  let prg = Bincaml.Loadir.ast_of_fname fname in
   let id = prg.prog.proc_names.get_id proc in
   let _ = Lang.ID.Map.find id prg.prog.procs in
   ()

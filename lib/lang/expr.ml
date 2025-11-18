@@ -375,7 +375,7 @@ module BasilExpr = struct
     let rw_alg e =
       let orig s = fix s in
       match rw_fun e with
-      | Some e' when Types.BType.equal (type_of e') (type_of (orig e)) -> e'
+      | Some e' when Types.equal (type_of e') (type_of (orig e)) -> e'
       | Some e' ->
           failwith
           @@ Printf.sprintf

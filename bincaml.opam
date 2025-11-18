@@ -22,10 +22,12 @@ depends: [
   "containers-data"
   "ppx_deriving"
   "ocamlgraph"
-  "qcheck-core"
   "intPQueue"
   "cmdliner"
+  "ocamlformat" {with-dev-setup}
+  "sherlodoc" {with-doc}
   "ppx_expect_nobase" {>= "0.17.2.2"}
+  "qcheck-core" {with-test}
   "odoc" {with-doc}
 ]
 build: [

@@ -41,7 +41,7 @@ let of_cmd st (e : Containers.Sexp.t) =
   | "skip" -> st
   | "load-il" ->
       let fname = List.hd (assert_atoms 1 args) in
-      let p = Ocaml_of_basil.Loadir.ast_of_fname fname in
+      let p = Bincaml.Loadir.ast_of_fname fname in
       { prog = Some p.prog }
   | "list-procs" ->
       let open Program in
@@ -89,17 +89,13 @@ let of_cmd st (e : Containers.Sexp.t) =
       st
   | "run-transforms" ->
       let args = assert_atoms (List.length args) args in
-      let ba = Ocaml_of_basil.Passes.PassManager.batch_of_list args in
-      let prog =
-        Some (Ocaml_of_basil.Passes.PassManager.run_batch ba (get_prog st))
-      in
+      let ba = Bincaml.Passes.PassManager.batch_of_list args in
+      let prog = Some (Bincaml.Passes.PassManager.run_batch ba (get_prog st)) in
       { prog }
   | "run-transform" ->
       let args = assert_atoms 1 args in
-      let ba = Ocaml_of_basil.Passes.PassManager.batch_of_list args in
-      let prog =
-        Some (Ocaml_of_basil.Passes.PassManager.run_batch ba (get_prog st))
-      in
+      let ba = Bincaml.Passes.PassManager.batch_of_list args in
+      let prog = Some (Bincaml.Passes.PassManager.run_batch ba (get_prog st)) in
       { prog }
   | e -> failwith @@ "not a command : " ^ e
 

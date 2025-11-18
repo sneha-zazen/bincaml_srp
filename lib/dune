@@ -1,5 +1,5 @@
 (library
- (name ocaml_of_basil)
+ (name bincaml)
  (flags -w -27)
- (modules loadir passes )
- (libraries BasilIR lang transforms ocaml_of_basil.ast trace))
+ (modules loadir passes)
+ (libraries BasilIR lang transforms bincaml.ast trace))

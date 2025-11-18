@@ -13,7 +13,7 @@ let rec test_print_1 ~(indent : int) ~(depth : int) () =
     let indent = indent + 2 in
     test_print_1 ~indent ~depth ();
     Format.print_string ",";
-    Format.print_break 1 (indent + 2);
+    Format.print_break 1 (indent + 2)
   end;
 
   Format.print_string "larg";
@@ -43,8 +43,7 @@ let%expect_test "depth 2" =
   Format.set_max_indent 100;
   test_print_1 ~indent:0 ~depth ();
   Format.print_flush ();
-  [%expect
-    {| asd(larg, asd(larg, asd(larg, larg), larg), larg) |}];
+  [%expect {| asd(larg, asd(larg, asd(larg, larg), larg), larg) |}];
 
   Format.set_margin 100;
   test_print_1 ~indent:0 ~depth ();

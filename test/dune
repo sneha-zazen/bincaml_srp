@@ -1,2 +1,11 @@
 (test
- (name test_ocaml_of_basil))
+ (name test_bincaml)
+ (modules test_bincaml)
+ (libraries bincaml_inline_tests))
+
+(library
+ (name bincaml_inline_tests)
+ (inline_tests)
+ (modules test_expr_print)
+ (preprocess
+  (pps ppx_expect_nobase)))

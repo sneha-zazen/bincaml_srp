@@ -1,6 +1,6 @@
 (lang dune 3.19)
 (using menhir 3.0)
-(name ocaml_of_basil)
+(name bincaml)
 
 (generate_opam_files true)
 
@@ -19,7 +19,7 @@
 (documentation https://url/to/documentation)
 
 (package
- (name ocaml_of_basil)
+ (name bincaml)
  (synopsis "A short synopsis")
  (description "A longer description")
  (depends
@@ -34,10 +34,12 @@
    containers-data
    ppx_deriving
    ocamlgraph
-   qcheck-core
    intPQueue
    cmdliner
+   (ocamlformat :with-dev-setup)
+   (sherlodoc :with-doc)
    (ppx_expect_nobase (>= "0.17.2.2"))
+   (qcheck-core :with-test)
    )
  (tags
   ("add topics" "to describe" your project)))
