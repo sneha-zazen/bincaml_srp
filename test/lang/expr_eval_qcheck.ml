@@ -69,8 +69,13 @@ let partial_eval_test =
       print_endline q;
       print_endline "";
       false
-  | `UNKNOWN (e, stderr) when CCString.mem ~sub:"invalid argument '0' for 'size'" e -> assume_fail ()
+  | `UNKNOWN (e, stderr)
+    when CCString.mem ~sub:"Invalid argument '0' for 'size'" e ->
+      assume_fail ()
   | `UNKNOWN (e, stderr) -> failwith (e ^ "\n" ^ stderr)
 
 let () = Printexc.record_backtrace true
-let _ = QCheck_base_runner.run_tests_main [ partial_eval_test ]
+
+let _ =
+  let suite = List.map QCheck_alcotest.to_alcotest [ partial_eval_test ] in
+  Alcotest.run "smteval cvc qcheck" [ ("bv", suite) ]

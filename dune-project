@@ -14,7 +14,7 @@
 (formatting
  (enabled_for dune))
 
-(license LICENSE)
+(license Apache-2.0)
 
 (documentation https://url/to/documentation)
 
@@ -39,7 +39,9 @@
    (ocamlformat :with-dev-setup)
    (sherlodoc :with-doc)
    (ppx_expect_nobase (>= "0.17.2.2"))
+   (alcotest :with-test)
    (qcheck-core :with-test)
+   (qcheck-alcotest :with-test)
    )
  (tags
   ("add topics" "to describe" your project)))

@@ -6,10 +6,13 @@ status: very early stages work-in progress.
 
 ### Setup
 
-build with OCaml 5.3.0 (and possibly lower)
+Supports Linux (at least amd64) and MacOS (arm64) with OCaml 5.3.0, 4.14 (and possibly versions in between).
+Windows is explicitly not supported outside of WSL.
 
 - enable frame pointers on opam switch for performance recording
 - enable flambda for compiler optimisation (for release build only)
+
+- Tests requrie smt solver CVC5 installed.
 
 ```
 opam switch create bincaml ocaml-variants.5.3.0+options ocaml-option-flambda ocaml-option-fp
