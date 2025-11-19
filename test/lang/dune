@@ -18,10 +18,10 @@
 
 (rule
  (alias runtest)
- (enabled_if (not %{bin-available:cvc5}))
+ (enabled_if
+  (not %{bin-available:cvc5}))
  (action
   (echo "WARN: cvc5 not available, qcheck eval test disabled\n")))
-
 
 (library
  (name expr_eval_expect)
