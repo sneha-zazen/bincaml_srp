@@ -45,7 +45,13 @@ module RevG = struct
 
   type t = G.t
 
-  module E = G.E
+  module E = struct
+    include G.E
+
+    let src = G.E.dst
+    let dst = G.E.src
+  end
+
   module V = G.V
 
   let iter_succ = G.iter_pred
@@ -76,11 +82,19 @@ module PG : sig
   val set_graph : G.t -> ('a, 'b) t -> ('a, 'b) t
   (** set graph *)
 
-  val graph : ('a, 'b) t -> G.t
+  val graph : ('a, 'b) t -> G.t option
   (** return graph of procedure *)
+
+  val make_stub : ('a, 'b) t -> ('a, 'b) t
+  (** delete implementation (CF Graph) of procedure to make it an external/stub
+      repr *)
+
+  val add_empty_impl : ('a, 'b) t -> ('a, 'b) t
+  (** create default implementation implementation (CF Graph) for procedure *)
 
   val create :
     ID.t ->
+    ?is_stub:bool ->
     ?formal_in_params:'a StringMap.t ->
     ?formal_out_params:'a StringMap.t ->
     ?captures_globs:'a list ->
@@ -96,7 +110,7 @@ module PG : sig
   val local_ids : ('a, 'b) t -> ID.generator
   (** return mutable generator for fresh local variable IDS *)
 
-  val locals : ('a, 'b) t -> 'a Var.Decls.t
+  val local_decls : ('a, 'b) t -> 'a Var.Decls.t
   (** return mutable declaration map for local var IDS *)
 
   val formal_in_params : ('a, 'b) t -> 'a StringMap.t
@@ -123,7 +137,7 @@ end = struct
     id : ID.t;
     formal_in_params : 'v StringMap.t;
     formal_out_params : 'v StringMap.t;
-    graph : G.t;
+    graph : G.t option;
     locals : 'v Var.Decls.t;
     topo_fwd : Vert.t Graph.WeakTopological.t lazy_t;
     topo_rev : Vert.t Graph.WeakTopological.t lazy_t;
@@ -136,20 +150,26 @@ end = struct
   let graph p = p.graph
   let block_ids p = p.block_ids
   let local_ids p = p.local_ids
-  let locals p = p.locals
+  let local_decls p = p.locals
   let formal_in_params p = p.formal_in_params
   let formal_out_params p = p.formal_out_params
   let topo_fwd p = Lazy.force p.topo_fwd
   let topo_rev p = Lazy.force p.topo_rev
 
   let map_graph f p =
-    let graph = f p.graph in
-    {
-      p with
-      graph;
-      topo_fwd = lazy (WTO.recursive_scc graph Entry);
-      topo_rev = lazy (RevWTO.recursive_scc graph Return);
-    }
+    let np =
+      Option.map
+        (fun g ->
+          let graph = f g in
+          {
+            p with
+            graph = Some graph;
+            topo_fwd = lazy (WTO.recursive_scc graph Entry);
+            topo_rev = lazy (RevWTO.recursive_scc graph Return);
+          })
+        p.graph
+    in
+    Option.get_or ~default:p np
 
   let set_graph g p = map_graph (fun _ -> g) p
 
@@ -162,16 +182,20 @@ end = struct
   let set_formal_in_params f p = map_formal_in_params (fun _ -> f) p
   let set_formal_out_params f p = map_formal_in_params (fun _ -> f) p
 
-  let create id ?(formal_in_params = StringMap.empty)
-      ?(formal_out_params = StringMap.empty) ?(captures_globs = [])
-      ?(modifies_globs = []) ?(requires = []) ?(ensures = []) () =
+  let empty_graph =
     let graph = G.empty in
-    let specification =
-      Some { captures_globs; modifies_globs; requires; ensures }
-    in
     let graph = G.add_vertex graph Entry in
     let graph = G.add_vertex graph Exit in
     let graph = G.add_vertex graph Return in
+    graph
+
+  let create id ?(is_stub = false) ?(formal_in_params = StringMap.empty)
+      ?(formal_out_params = StringMap.empty) ?(captures_globs = [])
+      ?(modifies_globs = []) ?(requires = []) ?(ensures = []) () =
+    let specification =
+      Some { captures_globs; modifies_globs; requires; ensures }
+    in
+    let graph = if is_stub then None else Some empty_graph in
     {
       id;
       formal_in_params;
@@ -181,6 +205,31 @@ end = struct
       local_ids = ID.make_gen ();
       block_ids = ID.make_gen ();
       specification;
+      topo_fwd =
+        lazy
+          (WTO.recursive_scc
+             (Option.get_exn_or "no graph to iterate" graph)
+             Entry);
+      topo_rev =
+        lazy
+          (RevWTO.recursive_scc
+             (Option.get_exn_or "no graph to iterate" graph)
+             Return);
+    }
+
+  let make_stub p =
+    {
+      p with
+      graph = None;
+      topo_fwd = lazy (WTO.recursive_scc G.empty Entry);
+      topo_rev = lazy (RevWTO.recursive_scc G.empty Return);
+    }
+
+  let add_empty_impl p =
+    let graph = empty_graph in
+    {
+      p with
+      graph = Some graph;
       topo_fwd = lazy (WTO.recursive_scc graph Entry);
       topo_rev = lazy (RevWTO.recursive_scc graph Return);
     }
@@ -202,12 +251,11 @@ let remove_block p id =
       G.remove_vertex g (Begin id))
     p
 
-let add_block p id ?(phis = []) ~(stmts : ('var, 'var, 'expr) Stmt.t list)
-    ?(successors = []) () =
+let add_block_graph graph id ?(phis = [])
+    ~(stmts : ('var, 'var, 'expr) Stmt.t list) ?(successors = []) () =
   let stmts = Vector.of_list stmts in
   let b = Edge.(Block { phis; stmts }) in
   let open Vert in
-  let graph = graph p in
   let existing = G.find_all_edges graph (Begin id) (End id) in
   let graph = List.fold_left G.remove_edge_e graph existing in
   let graph = G.add_edge_e graph (Begin id, b, End id) in
@@ -216,7 +264,14 @@ let add_block p id ?(phis = []) ~(stmts : ('var, 'var, 'expr) Stmt.t list)
       (fun graph i -> G.add_edge graph (End id) (Begin i))
       graph successors
   in
-  p |> map_graph (fun _ -> graph)
+  graph
+
+let add_block p id ?(phis = []) ~(stmts : ('var, 'var, 'expr) Stmt.t list)
+    ?(successors = []) () =
+  assert (Option.is_some (graph p));
+  map_graph
+    (fun graph -> add_block_graph graph id ~phis ~stmts ~successors ())
+    p
 
 let decl_block_exn p name ?(phis = [])
     ~(stmts : ('var, 'var, 'expr) Stmt.t list) ?(successors = []) () =
@@ -224,6 +279,13 @@ let decl_block_exn p name ?(phis = [])
   let id = (block_ids p).decl_exn name in
   let p = add_block p id ~phis ~stmts ~successors () in
   (p, id)
+
+let fresh_block_graph p graph ?name ?(phis = [])
+    ~(stmts : ('var, 'var, 'expr) Stmt.t list) ?(successors = []) () =
+  let open Block in
+  let name = Option.get_or ~default:"block" name in
+  let id = (block_ids p).fresh ~name () in
+  (add_block_graph graph id ~phis ~stmts ~successors (), id)
 
 let fresh_block p ?name ?(phis = []) ~(stmts : ('var, 'var, 'expr) Stmt.t list)
     ?(successors = []) () =
@@ -236,16 +298,20 @@ let get_entry_block p id =
   let open Edge in
   let open G in
   try
-    let id = G.find_edge (graph p) Entry (Begin id) in
-    Some id
+    graph p
+    |> Option.flat_map (fun g ->
+        let id = G.find_edge g Entry (Begin id) in
+        Some id)
   with Not_found -> None
 
 let get_block p id =
   let open Edge in
   let open G in
   try
-    let _, e, _ = G.find_edge (graph p) (Begin id) (End id) in
-    match e with Block b -> Some b | Jump -> None
+    graph p
+    |> Option.flat_map (fun g ->
+        let _, e, _ = G.find_edge g (Begin id) (End id) in
+        match e with Block b -> Some b | Jump -> None)
   with Not_found -> None
 
 let update_block p id (block : (Var.t, BasilExpr.t) Block.t) =
@@ -262,13 +328,15 @@ let replace_edge p id (block : (Var.t, BasilExpr.t) Block.t) =
 
 let decl_local p v =
   let _ = (local_ids p).decl_or_get (Var.name v) in
-  Var.Decls.add (locals p) v;
+  Var.Decls.add (local_decls p) v;
   v
 
-let fresh_var p ?(pure = true) typ =
-  let n, _ = (local_ids p).fresh ~name:"v" () in
+let fresh_var p ?(pure = true) ?name typ : Var.t =
+  let name = Option.map (String.drop_while (Char.equal '$')) name in
+  let name = Option.get_or ~default:"v" name in
+  let n, _ = (local_ids p).fresh ~name () in
   let v = Var.create n typ ~pure in
-  Var.Decls.add (locals p) v;
+  Var.Decls.add (local_decls p) v;
   v
 
 let blocks_to_list p =
@@ -277,8 +345,12 @@ let blocks_to_list p =
     let edge = G.E.label edge in
     match edge with Edge.(Block b) -> (id, b) :: acc | _ -> acc
   in
-  G.fold_edges_e collect_edge (graph p) []
+  graph p
+  |> Option.map (fun g -> G.fold_edges_e collect_edge g [])
+  |> Option.get_or ~default:[]
 
+(** Fold over blocks in forwards weak topological order (boundocle). The order
+    is *not* stable *)
 let fold_blocks_topo_fwd (f : 'a -> ID.t -> Edge.block -> 'a) init p =
   let open Graph.WeakTopological in
   let f acc e =
@@ -290,11 +362,17 @@ let fold_blocks_topo_fwd (f : 'a -> ID.t -> Edge.block -> 'a) init p =
   let rec ff acc e =
     match e with
     | Vertex a -> f acc a
-    | Component (a, e) -> f (Graph.WeakTopological.fold_left ff acc e) a
+    | Component (a, e) ->
+        let acc = f acc a in
+        Graph.WeakTopological.fold_left ff acc e
   in
-  let topo = topo_fwd p in
-  Graph.WeakTopological.fold_left ff init topo
+  if graph p |> Option.is_some then
+    let topo = topo_fwd p in
+    Graph.WeakTopological.fold_left ff init topo
+  else init
 
+(** Fold over blocks in reverse weak topological order (boundocle). The order is
+    *not* stable *)
 let fold_blocks_topo_rev (f : 'a -> ID.t -> Edge.block -> 'a) init p =
   let open Graph.WeakTopological in
   let f acc e =
@@ -306,10 +384,43 @@ let fold_blocks_topo_rev (f : 'a -> ID.t -> Edge.block -> 'a) init p =
   let rec ff acc e =
     match e with
     | Vertex a -> f acc a
-    | Component (a, e) -> f (Graph.WeakTopological.fold_left ff acc e) a
+    | Component (a, e) ->
+        let acc = Graph.WeakTopological.fold_left ff acc e in
+        f acc a
   in
-  let topo = topo_rev p in
-  Graph.WeakTopological.fold_left ff init topo
+  if graph p |> Option.is_some then
+    let topo = topo_rev p in
+    Graph.WeakTopological.fold_left ff init topo
+  else init
+
+let blocks_succ p i =
+  Option.to_iter (graph p)
+  |> Iter.flat_map (fun graph ->
+      Iter.from_iter (fun f -> G.iter_succ f graph (End i))
+      |> Iter.flat_map (function
+        | Vert.Begin i ->
+            Iter.singleton
+              (i, get_block p i |> Option.get_exn_or "bad cfg sturcture")
+        | Return -> Iter.empty
+        | Exit -> Iter.empty
+        | v -> failwith @@ "bad graph structure " ^ Vert.show v))
+
+let blocks_pred p i =
+  Option.to_iter (graph p)
+  |> Iter.flat_map (fun graph ->
+      Iter.from_iter (fun f -> G.iter_pred f graph (Begin i))
+      |> Iter.flat_map (function
+        | Vert.End i ->
+            Iter.singleton
+              (i, get_block p i |> Option.get_exn_or "bad cfg sturcture")
+        | Entry -> Iter.empty
+        | v -> failwith @@ "bad graph structure  " ^ Vert.show v))
+
+let iter_blocks_topo_fwd p =
+  Iter.from_iter (fun f -> fold_blocks_topo_fwd (fun acc a b -> f (a, b)) () p)
+
+let iter_blocks_topo_rev p =
+  Iter.from_iter (fun f -> fold_blocks_topo_rev (fun acc a b -> f (a, b)) () p)
 
 let pretty show_lvar show_var show_expr p =
   let open Containers_pp in
@@ -326,49 +437,59 @@ let pretty show_lvar show_var show_expr p =
            (newline ^ text " -> ")
            [ params (formal_in_params p); params (formal_out_params p) ])
   in
-  let collect_edge b ende acc =
-    let vert = G.V.label b in
-    let edge = G.E.label (G.find_edge (graph p) b ende) in
-    match (vert, edge) with
-    | Vert.Begin block_id, Edge.(Block b) ->
-        let succ = G.succ (graph p) ende in
-        let succ =
-          match succ with
-          | [ Return ] -> (
-              let _, re, _ = G.find_edge (graph p) ende Return in
-              match re with
-              | Block { stmts } ->
-                  Vector.map
-                    (fun s ->
-                      Stmt.pretty show_lvar show_var show_expr s ^ text ";")
-                    stmts
-                  |> Vector.to_list
-              | _ -> [])
-          | [] -> [ text "unreachable" ]
-          | succ ->
-              let succ =
-                List.map
-                  (fun f ->
-                    match G.V.label f with
-                    | Begin i -> text @@ ID.to_string i
-                    | _ -> failwith "unsupp")
-                  succ
-              in
-              [
-                text "goto "
-                ^ (fun s -> bracket "(" (fill (text ",") s) ")") succ;
-              ]
-        in
-        let b =
-          Block.pretty show_lvar show_var show_expr ~block_id ~terminator:succ b
-        in
-        b :: acc
-    | _ -> acc
+  let return_stmt =
+    text "return"
+    ^ bracket "("
+        (fill (text ",")
+           (formal_out_params p |> StringMap.to_list
+           |> List.map (fun (n, v) ->
+               text n ^ text "=" ^ text (Var.to_string v))))
+        ")"
   in
-  let blocks = G.fold_edges collect_edge (graph p) [] in
+  let pretty_block graph block_id block =
+    let succ = G.succ_e graph (Vert.End block_id) in
+    let succ =
+      match succ with
+      | [] -> [ text "unreachable" ]
+      | [ (b, re, Return) ] -> (
+          match re with
+          | Block { stmts } ->
+              let stmts =
+                Vector.map
+                  (fun s ->
+                    Stmt.pretty show_lvar show_var show_expr s ^ text ";")
+                  stmts
+                |> Vector.to_list
+              in
+              stmts @ [ return_stmt ]
+          | Jump -> [ return_stmt ])
+      | succ ->
+          let succ =
+            List.map
+              (fun (b, label, e) ->
+                match G.V.label e with
+                | Begin i -> text @@ ID.to_string i
+                | _ -> failwith "bad graph structure: goto targets non-block")
+              succ
+          in
+          [ text "goto " ^ (fun s -> bracket "(" (fill (text ",") s) ")") succ ]
+    in
+    Block.pretty show_lvar show_var show_expr ~block_id ~terminator:succ block
+  in
+  let module StableTopoSort = Graph.Topological.Make_stable (G) in
+  let blocks =
+    Option.to_iter (graph p)
+    |> Iter.flat_map (fun g ->
+        Iter.from_iter (fun f -> StableTopoSort.iter f g)
+        |> Iter.filter_map (function Vert.Begin id -> Some id | _ -> None)
+        |> Iter.map (fun id ->
+            (id, get_block p id |> Option.get_exn_or "bad graph"))
+        |> Iter.map (fun (id, block) -> pretty_block g id block))
+    |> Iter.to_list
+  in
   let blocks =
     surround (text "[")
-      (nest 2 @@ newline ^ append_l ~sep:(text ";" ^ newline) (List.rev blocks))
+      (nest 2 @@ newline ^ append_l ~sep:(text ";" ^ newline) blocks)
       (newline ^ text "]")
   in
   header ^ nl ^ blocks

@@ -15,17 +15,9 @@ let show_v b =
   in
   Pretty.to_string ~width:80 x
 
-let assigned_stmt (init : V.t) s : V.t =
-  let f_lvar a v = V.add v a in
-  Stmt.iter_lvar s |> Iter.fold f_lvar init
-
-let free_vars_stmt (init : V.t) (s : (Var.t, Var.t, BasilExpr.t) Stmt.t) : V.t =
-  let f_expr a v = V.union (BasilExpr.free_vars v) a in
-  Stmt.iter_rexpr s |> Iter.fold f_expr init
-
 let tf_stmt_live init s =
-  let assigns = V.diff init (assigned_stmt V.empty s) in
-  free_vars_stmt assigns s
+  let assigns = V.diff init (Stmt.assigned V.empty s) in
+  Stmt.free_vars assigns s
 
 let tf_block (init : V.t) (b : (Var.t, BasilExpr.t) Block.t) =
   Block.fold_backwards ~f:tf_stmt_live ~phi:(fun f _ -> f) ~init b
@@ -61,18 +53,20 @@ module LV =
     end)
 
 let run (p : Program.proc) =
-  let wto =
-    Trace.with_span ~__FILE__ ~__LINE__ "WTO" @@ fun _ ->
-    WTO.recursive_scc (Procedure.graph p) Procedure.Vert.Return
-  in
-  let r =
+  let analyse graph =
+    let wto =
+      Trace.with_span ~__FILE__ ~__LINE__ "WTO" @@ fun _ ->
+      Procedure.RevWTO.recursive_scc graph Procedure.Vert.Return
+    in
     Trace.with_span ~__FILE__ ~__LINE__ "live-vars-analysis" @@ fun _ ->
-    LV.recurse (Procedure.graph p) wto
+    LV.recurse graph wto
       (fun v -> V.empty)
       (Graph.ChaoticIteration.Predicate (fun _ -> false))
       10
   in
-  fun v -> Option.get_or ~default:V.empty (LV.M.find_opt v r)
+  let res = Procedure.graph p |> Option.map analyse in
+  fun v ->
+    Option.get_or ~default:V.empty (Option.flat_map (LV.M.find_opt v) res)
 
 let label (r : G.vertex -> V.t) (v : G.vertex) = show_v (r v)
 let print_g res = Viscfg.dot_labels (fun v -> Some (label res v))
@@ -83,7 +77,7 @@ let print_live_vars_dot fmt p =
   let (module M : Viscfg.ProcPrinter) =
     Viscfg.dot_labels (fun v -> Some (label r v))
   in
-  M.fprint_graph fmt (Procedure.graph p)
+  Procedure.graph p |> Option.iter (fun g -> M.fprint_graph fmt g)
 
 let%expect_test _ =
   let open BasilExpr in
@@ -121,7 +115,11 @@ module Interproc = struct
 
   let free_vars_stmt summary (init : V.t)
       (s : (Var.t, Var.t, BasilExpr.t) Stmt.t) : V.t =
-    let f_expr a v = V.union (BasilExpr.free_vars v) a in
+    let f_expr a v =
+      match v with
+      | `Expr v -> V.union (BasilExpr.free_vars v) a
+      | `Var v -> V.add v a
+    in
     let filter_glob =
       V.filter (function (v : Var.t) ->
           Var.equal_declaration_scope (Var.scope v) Global)
@@ -139,7 +137,7 @@ module Interproc = struct
 
   let tf_block summary (init : V.t) (b : (Var.t, BasilExpr.t) Block.t) =
     let tf_stmt init s =
-      let assigns = V.diff init (assigned_stmt V.empty s) in
+      let assigns = V.diff init (Stmt.assigned V.empty s) in
       free_vars_stmt summary assigns s
     in
     Block.fold_backwards ~f:tf_stmt ~phi:(fun f _ -> f) ~init b
@@ -172,14 +170,16 @@ module Interproc = struct
   let tf_proc (prog : Program.t) proc_summary (pid : ID.t) =
     Trace.with_span ~__FILE__ ~__LINE__ "liveness-solve-proc" @@ fun _ ->
     let proc = ID.Map.find pid prog.procs in
-    let res =
-      ILV.analyze
-        (function e -> { proc_summary; lives = V.empty })
-        (Procedure.graph proc)
+    let analyse graph =
+      let res =
+        ILV.analyze (function e -> { proc_summary; lives = V.empty }) graph
+      in
+      let entry = res Procedure.Vert.Entry in
+      let n = ID.Map.add pid entry.lives proc_summary in
+      n
     in
-    let entry = res Procedure.Vert.Entry in
-    let n = ID.Map.add pid entry.lives proc_summary in
-    n
+    Procedure.graph proc |> Option.map analyse
+    |> Option.get_or ~default:proc_summary
 
   module CG = Program.CallGraph.G
 

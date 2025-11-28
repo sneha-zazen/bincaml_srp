@@ -32,7 +32,7 @@ let pretty_phi show_var v =
         | bid, v -> (text @@ ID.to_string bid) ^ text " -> " ^ show_var v)
       v.rhs
   in
-  lhs ^ text " := phi" ^ (bracket "(" (fill (text ", ") rhs)) ")"
+  lhs ^ text " := phi" ^ (bracket "(" (fill (text "," ^ newline) rhs)) ")"
 
 let pretty show_lvar show_var show_expr ?(terminator = []) ?block_id b =
   let open Containers_pp in
@@ -42,7 +42,7 @@ let pretty show_lvar show_var show_expr ?(terminator = []) ?block_id b =
     | [] -> []
     | o ->
         let phi = List.map (pretty_phi show_var) o in
-        [ bracket "(" (fill (text ",") phi) ")" ]
+        [ bracket "(" (fill (text "," ^ newline) phi) ")" ]
   in
   let stmts =
     Vector.to_list b.stmts
@@ -77,6 +77,20 @@ let fold_forwards ~(phi : 'acc -> 'v phi list -> 'acc)
     =
   Iter.fold f (phi i b.phis) (Vector.to_iter b.stmts)
 
+let map_fold_forwards ~(phi : 'acc -> 'v phi list -> 'acc * 'v phi list)
+    ~(f : 'acc -> ('v, 'v, 'e) Stmt.t -> 'acc * ('v, 'v, 'e) Stmt.t) (i : 'a)
+    (b : ('v, 'e) t) : 'acc * ('v, 'e) t =
+  let acc, phis = phi i b.phis in
+  let acc, stmts =
+    Iter.fold
+      (fun (a, stmts) s ->
+        let a, s' = f a s in
+        (a, Iter.snoc stmts s'))
+      (acc, Iter.empty) (Vector.to_iter b.stmts)
+  in
+  let stmts = Vector.of_iter stmts |> Vector.freeze in
+  (acc, { phis; stmts })
+
 let foldi_backwards ~(f : 'acc -> int * ('v, 'v, 'e) Stmt.t -> 'acc)
     ~(phi : 'acc -> 'v phi list -> 'acc) ~(init : 'a) (b : ('v, 'e) t) : 'acc =
   Iter.fold f init
@@ -86,3 +100,17 @@ let foldi_backwards ~(f : 'acc -> int * ('v, 'v, 'e) Stmt.t -> 'acc)
 let fold_backwards ~(f : 'acc -> ('v, 'v, 'e) Stmt.t -> 'acc)
     ~(phi : 'acc -> 'v phi list -> 'acc) ~(init : 'a) (b : ('v, 'e) t) : 'acc =
   Iter.fold f init (Vector.to_iter_rev b.stmts) |> fun e -> phi e b.phis
+
+let assigned_vars_iter b =
+  let phi = List.to_iter b.phis |> Iter.map (fun b -> b.lhs) in
+  let bls = stmts_iter b |> Iter.flat_map Stmt.iter_assigned in
+  Iter.append phi bls
+
+let read_vars_iter b =
+  let phi =
+    List.to_iter b.phis
+    |> Iter.flat_map (fun b ->
+        b.rhs |> List.to_iter |> Iter.map (fun (_, v) -> v))
+  in
+  let bls = stmts_iter b |> Iter.flat_map Stmt.free_vars_iter in
+  Iter.append phi bls

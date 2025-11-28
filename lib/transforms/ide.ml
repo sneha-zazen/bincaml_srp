@@ -78,7 +78,7 @@ module IDEGraph = struct
   let add_call p (st : bstate) (origin : stmt_id) (callstmt : Program.stmt) =
     let lhs, rhs, target =
       match callstmt with
-      | Stmt.(Instr_Call { lhs; procid; args }) -> begin
+      | Stmt.(Instr_Call { lhs; procid; args }) ->
           let target_proc = Program.proc p procid in
           let formal_in =
             Procedure.formal_in_params target_proc |> StringMap.to_iter
@@ -101,7 +101,6 @@ module IDEGraph = struct
             |> Iter.to_list
           in
           (actual_lhs, actual_rhs, procid)
-        end
       | _ -> failwith "not a call"
     in
     let g = push_edge (CallSite origin) st in
@@ -160,20 +159,27 @@ module IDEGraph = struct
       | _, _, _ -> failwith "bad proc edge"
     in
     (* add all vertices *)
+    (* TODO: missing stub procedure edges probably *)
     let intra_verts =
-      Procedure.G.fold_vertex
-        (fun v acc -> Iter.cons (Loc.IntraVertex { proc_id; v }) acc)
-        (Procedure.graph p) Iter.empty
+      Option.to_iter (Procedure.graph p)
+      |> Iter.flat_map (fun graph ->
+          Procedure.G.fold_vertex
+            (fun v acc -> Iter.cons (Loc.IntraVertex { proc_id; v }) acc)
+            graph Iter.empty)
     in
     let g = Iter.fold GB.add_vertex g intra_verts in
-    Procedure.G.fold_edges_e add_block_edge (Procedure.graph p) g
+    Procedure.graph p
+    |> Option.map (fun procg -> Procedure.G.fold_edges_e add_block_edge procg g)
+    |> Option.get_or ~default:g
 
   let proc_vertices p =
     let proc_id = Procedure.id p in
     let intra_verts =
-      Procedure.G.fold_vertex
-        (fun v acc -> Iter.cons (Loc.IntraVertex { proc_id; v }) acc)
-        (Procedure.graph p) Iter.empty
+      Option.to_iter (Procedure.graph p)
+      |> Iter.flat_map (fun graph ->
+          Procedure.G.fold_vertex
+            (fun v acc -> Iter.cons (Loc.IntraVertex { proc_id; v }) acc)
+            graph Iter.empty)
     in
     let b =
       Procedure.blocks_to_list p |> List.to_iter
@@ -198,7 +204,13 @@ module IDEGraph = struct
     type t = G.t
 
     module V = G.V
-    module E = G.E
+
+    module E = struct
+      include G.E
+
+      let src = G.E.dst
+      let dst = G.E.src
+    end
 
     let iter_vertex = G.iter_vertex
     let iter_succ = G.iter_pred
@@ -340,8 +352,8 @@ module IDELive = struct
   let transfer s =
     let open Livevars in
     let open Stmt in
-    let assigned = Livevars.assigned_stmt V.empty s |> V.to_iter in
-    let read = Livevars.free_vars_stmt V.empty s |> V.to_iter in
+    let assigned = Stmt.assigned V.empty s |> V.to_iter in
+    let read = Stmt.free_vars V.empty s |> V.to_iter in
     let rhs =
       match s with
       | Instr_Load _ | Instr_Store _ | Instr_Assert _ | Instr_Assume _
@@ -487,7 +499,7 @@ module IDE (D : IDEDomain) = struct
       | `Backwards, (a, _, b) -> (b, a)
     in
     match IDEGraph.G.E.label edge with
-    | Stmts (phi, bs) -> begin
+    | Stmts (phi, bs) -> (
         let stmts st =
           match dir with
           | `Forwards ->
@@ -502,8 +514,7 @@ module IDE (D : IDEDomain) = struct
         let phis st = compose_state_updates (tf_phis phi) st st in
         match dir with
         | `Forwards -> phis (stmts st)
-        | `Backwards -> stmts (phis st)
-      end
+        | `Backwards -> stmts (phis st))
     | InterCall args ->
         let target = get_summary target in
         update_state st target
@@ -598,7 +609,7 @@ module IDE (D : IDEDomain) = struct
       let st' =
         if List.length siblings > 1 then join_constant_summary st' ost' else st'
       in
-      if not (equal_constant_state ost' st') then begin
+      if not (equal_constant_state ost' st') then (
         Hashtbl.add constants e st';
         let succ =
           match dir with
@@ -606,8 +617,7 @@ module IDE (D : IDEDomain) = struct
           | `Backwards -> IDEGraph.G.pred_e graph e
         in
         List.iter (fun v -> Q.add worklist v (priority v)) succ;
-        ()
-      end
+        ())
     done;
     constants
 
@@ -653,22 +663,21 @@ let print_live_vars_dot sum r fmt prog proc_id =
   let p = Program.proc prog proc_id in
   Trace.with_span ~__FILE__ ~__LINE__ "dot-priner" @@ fun _ ->
   let (module M : Viscfg.ProcPrinter) = Viscfg.dot_labels (fun v -> label v) in
-  M.fprint_graph fmt (Procedure.graph p)
+  Option.iter (fun g -> M.fprint_graph fmt g) (Procedure.graph p)
 
 let transform (prog : Program.t) =
   let summary, r = IDELiveAnalysis.solve `Backwards prog in
   ID.Map.to_iter prog.procs
   |> Iter.iter (fun (proc, proc_n) ->
       let n = ID.to_string proc in
-      begin
-        CCIO.with_out
-          ("idelive" ^ n ^ ".dot")
-          (fun s ->
-            print_live_vars_dot IDELiveAnalysis.show_summary
-              (summary ~proc_id:proc) (Format.of_chan s) prog proc);
-        CCIO.with_out
-          ("idelive-const" ^ n ^ ".dot")
-          (fun s ->
-            print_live_vars_dot show_const_summary (r ~proc_id:proc)
-              (Format.of_chan s) prog proc)
-      end)
+      CCIO.with_out
+        ("idelive" ^ n ^ ".dot")
+        (fun s ->
+          print_live_vars_dot IDELiveAnalysis.show_summary
+            (summary ~proc_id:proc) (Format.of_chan s) prog proc);
+      CCIO.with_out
+        ("idelive-const" ^ n ^ ".dot")
+        (fun s ->
+          print_live_vars_dot show_const_summary (r ~proc_id:proc)
+            (Format.of_chan s) prog proc));
+  prog

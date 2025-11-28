@@ -26,6 +26,7 @@ type ('lvar, 'var, 'expr) t =
           swapped depending on endiannesss, and concatenated and stored into
           [lhs]*)
   | Instr_Store of {
+      lhs : 'lvar;
       mem : 'var;
       addr : 'expr;
       value : 'expr;
@@ -39,22 +40,6 @@ type ('lvar, 'var, 'expr) t =
       name : string;
       args : 'expr StringMap.t;
     }  (** effectful operation calling a named intrinsic*)
-  (*| Instr_Return of { args : 'expr StringMap.t }
-       return to caller with [args] as return values (bound to the formal out
-          parameters of this procedure);
-
-          TODO: remove this statement and encode returns as an assignment to the
-          formal out parameters, followed by jump to return vertex---corresponds
-          to the Boogie style.
-
-          This is really just an assignment of exprs to the corresponind formal
-          parameters
-
-          Whereas the actual return is encoded in the CFG where the formal
-          params are returned to the caller, not sure how to square this
-          invariant that this statement has to be followed by a return vertex; I
-          think possibly its just confusing things and isn't really neccessary.
-      *)
   | Instr_Call of {
       lhs : 'lvar StringMap.t;
       procid : ID.t;
@@ -89,15 +74,18 @@ let iter_mem_store stmt =
 let iter_rexpr stmt =
   let open Iter.Infix in
   match stmt with
-  | Instr_Assign ls -> List.to_iter ls >|= snd
-  | Instr_Assert { body } -> Iter.singleton body
-  | Instr_Assume { body } -> Iter.singleton body
-  | Instr_Load { lhs; mem; addr; endian } -> Iter.singleton addr
-  | Instr_Store { mem; addr; value; endian } ->
-      Iter.singleton value <+> Iter.singleton addr
-  | Instr_IntrinCall { lhs; name; args } -> StringMap.to_iter args >|= snd
-  | Instr_IndirectCall { target } -> Iter.singleton target
-  | Instr_Call { lhs; procid; args } -> StringMap.to_iter args >|= snd
+  | Instr_Assign ls -> List.to_iter ls >|= snd >|= fun v -> `Expr v
+  | Instr_Assert { body } -> Iter.singleton (`Expr body)
+  | Instr_Assume { body } -> Iter.singleton (`Expr body)
+  | Instr_Load { lhs; mem; addr; endian } ->
+      Iter.doubleton (`Expr addr) (`Var mem)
+  | Instr_Store { lhs; mem; addr; value; endian } ->
+      Iter.of_list [ `Expr value; `Expr addr; `Var mem ]
+  | Instr_IntrinCall { lhs; name; args } ->
+      StringMap.to_iter args >|= snd >|= fun e -> `Expr e
+  | Instr_IndirectCall { target } -> Iter.singleton (`Expr target)
+  | Instr_Call { lhs; procid; args } ->
+      StringMap.to_iter args >|= snd >|= fun e -> `Expr e
 
 (** get an iterator over the variables in the LHS of the statement *)
 let iter_lvar stmt =
@@ -107,7 +95,7 @@ let iter_lvar stmt =
   | Instr_Assert { body } -> Iter.empty
   | Instr_Assume { body } -> Iter.empty
   | Instr_Load { lhs; mem; addr; endian } -> Iter.singleton lhs
-  | Instr_Store { mem; addr; value; endian } -> Iter.singleton mem
+  | Instr_Store { lhs; mem; addr; value; endian } -> Iter.singleton lhs
   | Instr_IntrinCall { lhs; name; args } -> StringMap.to_iter lhs >|= snd
   | Instr_IndirectCall { target } -> Iter.empty
   | Instr_Call { lhs; procid; args } -> StringMap.to_iter lhs >|= snd
@@ -134,6 +122,7 @@ let pretty show_lvar show_var show_expr s =
   in
   let e = map ~f_lvar:show_lvar ~f_expr:show_expr ~f_rvar:show_var s in
   match e with
+  | Instr_Assign [] -> text "nop"
   | Instr_Assign ls ->
       let ls = List.map (function lhs, rhs -> lhs ^ text " := " ^ rhs) ls in
       let b = fill (text "," ^ newline) ls in
@@ -145,8 +134,8 @@ let pretty show_lvar show_var show_expr s =
       lhs ^ text " := " ^ text "load "
       ^ text (show_endian endian)
       ^ text " " ^ mem ^ text " " ^ addr ^ text " " ^ int cells
-  | Instr_Store { mem; addr; value; cells; endian } ->
-      text "store "
+  | Instr_Store { lhs; mem; addr; value; cells; endian } ->
+      lhs ^ text " := " ^ text "store "
       ^ text (show_endian endian)
       ^ text " " ^ mem ^ text " " ^ addr ^ text " " ^ value ^ text " "
       ^ int cells
@@ -169,3 +158,35 @@ let to_string ?width show_lvar show_var show_expr
   let width = Option.get_or ~default:80 width in
   let d = pretty show_lvar show_var show_expr s in
   Containers_pp.Pretty.to_string ~width d
+
+module V = Set.Make (Var)
+
+let show_stmt_basil =
+  let show_lvar v = Containers_pp.text @@ Var.to_string_il_lvar v in
+  let show_var v = Containers_pp.text @@ Var.to_string_il_rvar v in
+  let show_expr e = BasilExpr.pretty e in
+  to_string show_lvar show_var show_expr
+
+let pp_stmt_basil fmt s = Format.pp_print_string fmt (show_stmt_basil s)
+
+let assigned (init : V.t) s : V.t =
+  let f_lvar a v = V.add v a in
+  iter_lvar s |> Iter.fold f_lvar init
+
+let iter_assigned = iter_lvar
+
+let free_vars_iter (s : (Var.t, Var.t, BasilExpr.t) t) : Var.t Iter.t =
+  let f_expr v =
+    match v with
+    | `Expr v -> BasilExpr.free_vars_iter v
+    | `Var v -> Iter.singleton v
+  in
+  iter_rexpr s |> Iter.flat_map f_expr
+
+let free_vars (init : V.t) (s : (Var.t, Var.t, BasilExpr.t) t) : V.t =
+  let f_expr a v =
+    match v with
+    | `Expr v -> V.union (BasilExpr.free_vars v) a
+    | `Var v -> V.add v a
+  in
+  iter_rexpr s |> Iter.fold f_expr init
