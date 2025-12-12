@@ -269,7 +269,7 @@ and prtJump (i:int) (e : AbsBasilIR.jump) : doc = match e with
        AbsBasilIR.Jump_GoTo blockidents -> prPrec i 0 (concatD [render "goto" ; render "(" ; prtBlockIdentListBNFC 0 blockidents ; render ")"])
   |    AbsBasilIR.Jump_Unreachable  -> prPrec i 0 (concatD [render "unreachable"])
   |    AbsBasilIR.Jump_Return exprs -> prPrec i 0 (concatD [render "return" ; render "(" ; prtExprListBNFC 0 exprs ; render ")"])
-  |    AbsBasilIR.Jump_ReturnNamedParams namedcallargs -> prPrec i 0 (concatD [render "return" ; render "(" ; prtNamedCallArgListBNFC 0 namedcallargs ; render ")"])
+  |    AbsBasilIR.Jump_ProcReturn  -> prPrec i 0 (concatD [render "return"])
 
 
 and prtLVar (i:int) (e : AbsBasilIR.lVar) : doc = match e with
@@ -290,8 +290,23 @@ and prtJumpWithAttrib (i:int) (e : AbsBasilIR.jumpWithAttrib) : doc = match e wi
        AbsBasilIR.JumpWithAttrib1 (jump, attribset) -> prPrec i 0 (concatD [prtJump 0 jump ; prtAttribSet 0 attribset])
 
 
+and prtPhiExpr (i:int) (e : AbsBasilIR.phiExpr) : doc = match e with
+       AbsBasilIR.PhiExpr1 (blockident, var) -> prPrec i 0 (concatD [prtBlockIdent 0 blockident ; render "->" ; prtVar 0 var])
+
+and prtPhiExprListBNFC i es : doc = match (i, es) with
+    (_,[]) -> (concatD [])
+  | (_,[x]) -> (concatD [prtPhiExpr 0 x])
+  | (_,x::xs) -> (concatD [prtPhiExpr 0 x ; render "," ; prtPhiExprListBNFC 0 xs])
+and prtPhiAssign (i:int) (e : AbsBasilIR.phiAssign) : doc = match e with
+       AbsBasilIR.PhiAssign1 (lvar, phiexprs) -> prPrec i 0 (concatD [prtLVar 0 lvar ; render ":=" ; render "phi" ; render "(" ; prtPhiExprListBNFC 0 phiexprs ; render ")"])
+
+and prtPhiAssignListBNFC i es : doc = match (i, es) with
+    (_,[]) -> (concatD [])
+  | (_,[x]) -> (concatD [prtPhiAssign 0 x])
+  | (_,x::xs) -> (concatD [prtPhiAssign 0 x ; render "," ; prtPhiAssignListBNFC 0 xs])
 and prtBlock (i:int) (e : AbsBasilIR.block) : doc = match e with
-       AbsBasilIR.Block1 (blockident, attribset, beginlist, stmtwithattribs, jumpwithattrib, endlist) -> prPrec i 0 (concatD [render "block" ; prtBlockIdent 0 blockident ; prtAttribSet 0 attribset ; prtBeginList 0 beginlist ; prtStmtWithAttribListBNFC 0 stmtwithattribs ; prtJumpWithAttrib 0 jumpwithattrib ; render ";" ; prtEndList 0 endlist])
+       AbsBasilIR.Block_NoPhi (blockident, attribset, beginlist, stmtwithattribs, jumpwithattrib, endlist) -> prPrec i 0 (concatD [render "block" ; prtBlockIdent 0 blockident ; prtAttribSet 0 attribset ; prtBeginList 0 beginlist ; prtStmtWithAttribListBNFC 0 stmtwithattribs ; prtJumpWithAttrib 0 jumpwithattrib ; render ";" ; prtEndList 0 endlist])
+  |    AbsBasilIR.Block_Phi (blockident, attribset, beginlist, phiassigns, stmtwithattribs, jumpwithattrib, endlist) -> prPrec i 0 (concatD [render "block" ; prtBlockIdent 0 blockident ; prtAttribSet 0 attribset ; prtBeginList 0 beginlist ; render "(" ; prtPhiAssignListBNFC 0 phiassigns ; render ")" ; render ";" ; prtStmtWithAttribListBNFC 0 stmtwithattribs ; prtJumpWithAttrib 0 jumpwithattrib ; render ";" ; prtEndList 0 endlist])
 
 and prtBlockListBNFC i es : doc = match (i, es) with
     (_,[]) -> (concatD [])

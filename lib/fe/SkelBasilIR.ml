@@ -191,7 +191,7 @@ and transJump (x : jump) : result = match x with
     Jump_GoTo blockidents -> failure x
   | Jump_Unreachable  -> failure x
   | Jump_Return exprs -> failure x
-  | Jump_ReturnNamedParams namedcallargs -> failure x
+  | Jump_ProcReturn  -> failure x
 
 
 and transLVar (x : lVar) : result = match x with
@@ -207,8 +207,17 @@ and transJumpWithAttrib (x : jumpWithAttrib) : result = match x with
     JumpWithAttrib1 (jump, attribset) -> failure x
 
 
+and transPhiExpr (x : phiExpr) : result = match x with
+    PhiExpr1 (blockident, var) -> failure x
+
+
+and transPhiAssign (x : phiAssign) : result = match x with
+    PhiAssign1 (lvar, phiexprs) -> failure x
+
+
 and transBlock (x : block) : result = match x with
-    Block1 (blockident, attribset, beginlist, stmtwithattribs, jumpwithattrib, endlist) -> failure x
+    Block_NoPhi (blockident, attribset, beginlist, stmtwithattribs, jumpwithattrib, endlist) -> failure x
+  | Block_Phi (blockident, attribset, beginlist, phiassigns, stmtwithattribs, jumpwithattrib, endlist) -> failure x
 
 
 and transAttrKeyValue (x : attrKeyValue) : result = match x with

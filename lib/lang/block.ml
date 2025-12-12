@@ -22,10 +22,10 @@ type ('v, 'e) t = {
 }
 [@@deriving eq, ord]
 
-let pretty_phi show_var v =
+let pretty_phi show_lvar show_var v =
   let open Containers_pp in
   let open Containers_pp.Infix in
-  let lhs = show_var v.lhs in
+  let lhs = show_lvar v.lhs in
   let rhs =
     List.map
       (function
@@ -41,7 +41,7 @@ let pretty show_lvar show_var show_expr ?(terminator = []) ?block_id b =
     match b.phis with
     | [] -> []
     | o ->
-        let phi = List.map (pretty_phi show_var) o in
+        let phi = List.map (pretty_phi show_lvar show_var) o in
         [ bracket "(" (fill (text "," ^ newline) phi) ")" ]
   in
   let stmts =
@@ -90,6 +90,9 @@ let map_fold_forwards ~(phi : 'acc -> 'v phi list -> 'acc * 'v phi list)
   in
   let stmts = Vector.of_iter stmts |> Vector.freeze in
   (acc, { phis; stmts })
+
+let map ~phi f (b : ('v, 'e) t) : ('vv, 'ee) t =
+  { stmts = Vector.map f b.stmts; phis = phi b.phis }
 
 let foldi_backwards ~(f : 'acc -> int * ('v, 'v, 'e) Stmt.t -> 'acc)
     ~(phi : 'acc -> 'v phi list -> 'acc) ~(init : 'a) (b : ('v, 'e) t) : 'acc =

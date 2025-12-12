@@ -9,6 +9,12 @@ type proc = (Var.t, BasilExpr.t) Procedure.t
 type bloc = (Var.t, BasilExpr.t) Block.t
 type stmt = (Var.t, Var.t, e) Stmt.t
 
+module Proc = struct
+  type t = proc
+
+  let compare a b = Procedure.compare a b
+end
+
 let equal_stmt = Stmt.equal Var.equal Var.equal BasilExpr.equal
 let compare_stmt = Stmt.compare Var.compare Var.compare BasilExpr.compare
 
@@ -67,6 +73,21 @@ let pretty_to_chan chan (p : t) =
   output_string chan ";"
 
 let decl_global p = Var.Decls.add p.globals
+
+let create_single_proc ?(name = "<module>") () =
+  let proc_names = ID.make_gen () in
+  let procname = proc_names.fresh ~name () in
+  let proc = Procedure.create procname () in
+  let prog =
+    {
+      modulename = name;
+      entry_proc = Some procname;
+      globals = Var.Decls.empty ();
+      procs = ID.Map.singleton procname proc;
+      proc_names;
+    }
+  in
+  (prog, proc)
 
 let empty ?name () =
   let modulename = Option.get_or ~default:"<module>" name in
