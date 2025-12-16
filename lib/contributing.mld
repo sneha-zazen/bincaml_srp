@@ -55,7 +55,12 @@ To modify the procedure (returning a modified version, not modified in-place), u
 
 2. An intraprocedural flow-sensitive analysis of a non-ssa IR form with
 
-Use the Boundocle fixed point with widening (e.g. in reverse)
+Use the {{:https://backtracking.github.io/ocamlgraph/ocamlgraph/Graph/ChaoticIteration/index.html}Ocamlgraph
+Bourdoncle chaotic iteration} fixed-point with widening.
+
+The graph to use is {! Lang.Procedure.G} for forwards direction and {! Lang.Procedure.RevG} for
+reverse direction.
+
 
 {[
   Graph.ChaoticIteration.Make
@@ -73,6 +78,9 @@ Use the Boundocle fixed point with widening (e.g. in reverse)
       let analyze (e : edge) data =
         match G.E.label e with Block b -> transfer_block_function d bata | _ -> data
     end)
+  let analyse graph =
+    let wto = Procedure.RevWTO.recursive_scc graph Procedure.Vert.Return
+    in  LV.recurse graph wto
 ]}
 
 

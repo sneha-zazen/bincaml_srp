@@ -15,7 +15,7 @@ let tf_stmt_live init s =
 let tf_block (init : VarSet.t) (b : (Var.t, BasilExpr.t) Block.t) =
   Block.fold_backwards ~f:tf_stmt_live ~phi:(fun f _ -> f) ~init b
 
-(** Boundockle live-variable analysis using ocamlgraph's chaotic iteration *)
+(** Bourdoncle live-variable analysis using ocamlgraph's chaotic iteration *)
 module LV =
   Graph.ChaoticIteration.Make
     (Procedure.RevG)
