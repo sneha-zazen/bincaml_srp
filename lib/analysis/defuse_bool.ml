@@ -23,7 +23,6 @@ module IsZeroLattice = struct
 
   let widening a b = join a b
 end
-
 module IsZeroValueAbstraction = struct
   include IsZeroLattice
 

@@ -1,0 +1,208 @@
+open Bincaml_util.Common
+
+module IsKnownLattice = struct
+  let name = "tnum"
+
+  type t = Bot | TNum of { value : Bitvec.t; mask : Bitvec.t } | Top
+  [@@deriving eq, show { with_path = false }]
+
+  let tnum v m =
+    assert (Bitvec.(is_zero (bitand v m))); 
+    Bitvec.size_is_equal v m;
+    TNum { value = v; mask = m }
+
+  let known v = tnum v Bitvec.(zero ~size:(size v))
+
+  let compare a b =
+    if equal a b then 0
+    else
+      match (a, b) with
+      | TNum { value = av; mask = am }, TNum { value = bv; mask = bm } ->
+          if
+            Bitvec.is_zero (Bitvec.bitand am (Bitvec.bitnot bm))
+            && Bitvec.equal
+                 (Bitvec.bitand av (Bitvec.bitnot am))
+                 (Bitvec.bitand bv (Bitvec.bitnot bm))
+          then -1
+          else 1
+      | Bot, _ -> -1
+      | _, Bot -> 1
+      | _, Top -> -1
+      | Top, _ -> 1
+
+  let bottom = Bot
+  let top = Top
+  let pretty t = Containers_pp.text (show t)
+
+  let join a b =
+    match (a, b) with
+    | Top, _ | _, Top -> Top
+    | Bot, x | x, Bot -> x
+    | TNum { value = av; mask = am }, TNum { value = bv; mask = bm } ->
+        let premask = Bitvec.bitxor av bv in
+        let mask = Bitvec.bitor premask (Bitvec.bitor am bm) in
+        let value = Bitvec.bitand (Bitvec.bitnot mask) (Bitvec.bitand av bv) in
+        TNum { value; mask }
+
+  let widening a b = join a b
+end
+
+module IsKnownBitsOps = struct
+  include IsKnownLattice
+
+  let bind1 f a =
+    match a with TNum { value; mask } -> f (value, mask) | _ -> a
+
+  let bind2 f a b =
+    match (a, b) with
+    | Bot, _ | _, Bot -> Bot
+    | Top, _ | _, Top -> Top
+    | TNum { value = av; mask = am }, TNum { value = bv; mask = bm } ->
+        f (av, am) (bv, bm)
+
+  let bitnot = bind1 (fun (v, m) -> tnum Bitvec.(bitnot @@ bitor v m) m)
+
+  let zero_extend k =
+    bind1 (fun (v, m) ->
+        tnum
+          (Bitvec.zero_extend ~extension:k v)
+          (Bitvec.zero_extend ~extension:k m))
+
+  let sign_extend k =
+    bind1 (fun (v, m) ->
+        tnum
+          (Bitvec.sign_extend ~extension:k v)
+          (Bitvec.zero_extend ~extension:k m))
+
+  let extract (hi, lo) =
+    bind1 (fun (v, m) ->
+        tnum (Bitvec.extract ~hi ~lo v) (Bitvec.extract ~hi ~lo m))
+
+  let bitand =
+    bind2 (fun (av, am) (bv, bm) ->
+        tnum (Bitvec.bitand av bv) (Bitvec.bitor am bm))
+
+  let bitor =
+    bind2 (fun (av, am) (bv, bm) ->
+        let mask =
+          Bitvec.(
+            bitor (bitxor av bm) (bitxor bv am)
+            |> bitor (bitor (bitand am bm) (bitxor av bv)))
+        in
+        tnum Bitvec.(bitor av bv) mask)
+
+  let bitxor =
+    bind2 (fun (av, am) (bv, bm) ->
+        let v = Bitvec.(bitand (bitxor av bv) (bitnot @@ bitor am bm)) in
+        tnum v Bitvec.(bitor am bm))
+
+  let add =
+    bind2 (fun (av, am) (bv, bm) ->
+        let sm = Bitvec.add am bm in
+        let sv = Bitvec.add av bv in
+        let sigma = Bitvec.add sv sm in
+        let chi = Bitvec.bitxor sigma sv in
+        let mu = Bitvec.(bitor chi (bitor am bm)) in
+        tnum Bitvec.(bitand sv (bitnot mu)) mu)
+
+  let sub =
+    bind2 (fun (av, am) (bv, bm) ->
+        let dv = Bitvec.sub av bv in
+        let alpha = Bitvec.add dv am in
+        let beta = Bitvec.sub dv bm in
+        let xi = Bitvec.bitxor alpha beta in
+        let last = Bitvec.(bitor xi (bitor am bm)) in
+        tnum Bitvec.(bitand dv (bitnot last)) last)
+
+  let neg =
+    bind1 (fun (v, m) ->
+        let zero = Bitvec.(zero ~size:(size v)) in
+        sub (known @@ zero) (tnum v m))
+
+  let bitSHL =
+    bind2 (fun (av, am) (bv, bm) ->
+        if Bitvec.is_nonzero bm then Top
+        else tnum (Bitvec.shl av bv) (Bitvec.shl am bv))
+
+  let bitLSHR =
+    bind2 (fun (av, am) (bv, bm) ->
+        if Bitvec.is_nonzero bm then Top
+        else tnum (Bitvec.lshr av bv) (Bitvec.shl am bv))
+
+  let bitASHR =
+    bind2 (fun (av, am) (bv, bm) ->
+        if Bitvec.is_nonzero bm then Top
+        else tnum (Bitvec.ashr av bv) (Bitvec.shl am bv))
+
+  let mul =
+    bind2 (fun (av, am) (bv, bm) ->
+        let rec tnum_mul_aux acc a b =
+          let one = Bitvec.(of_int ~size:(size av) 1) in
+          let t_one = known one in
+          let recurse acc =
+            tnum_mul_aux acc (bitLSHR a t_one) (bitSHL b t_one)
+          in
+
+          if Bitvec.is_zero av && Bitvec.is_zero am then acc
+          else if Bitvec.(is_nonzero @@bitand av one) then recurse @@ add acc b
+          else if Bitvec.(is_nonzero @@bitand am one) then recurse @@ join acc b
+          else recurse acc
+        in
+        let acc = known Bitvec.(mul av bv) in
+        if Bitvec.size av = 0 || Bitvec.size bv = 0 then tnum av am
+        else
+          let a = tnum av am in
+          let b = tnum bv bm in
+          tnum_mul_aux acc a b)
+end
+
+module IsKnownBitsValueAbstraction = struct
+  include IsKnownBitsOps
+
+  let eval_const (op : Lang.Ops.AllOps.const) =
+    match op with
+    | `Bitvector a -> tnum a Bitvec.(zero ~size:(size a))
+    | `Bool true -> known @@ Bitvec.ones ~size:1
+    | `Bool false -> known @@ Bitvec.zero ~size:1
+    | _ -> Top
+
+  let eval_unop (op : Lang.Ops.AllOps.unary) a =
+    match op with
+    | `BVNOT -> bitnot a
+    | `ZeroExtend k -> zero_extend k a
+    | `SignExtend k -> sign_extend k a
+    | `Extract (hi, lo) -> extract (hi, lo) a
+    | `BVNEG -> neg a
+    | _ -> Top
+
+  let eval_binop (op : Lang.Ops.AllOps.binary) a b =
+    match op with
+     | `BVADD -> add a b
+    (*| `BVSUB -> sub a b
+    | `BVAND -> bitand a b
+    | `BVNAND -> bitnot (bitand a b)
+    | `BVOR -> bitor a b
+    | `BVXOR -> bitxor a b
+    | `BVSHL -> bitSHL a b
+    | `BVLSHR -> bitLSHR a b
+    | `BVASHR -> bitASHR a b
+    | `BVMUL -> Top  *)
+    (*
+    | `BVMUL
+    | `BVUDIV
+    | `BVUREM
+    | `BVSDIV
+| `BVSREM
+| `BVSMOD
+     *)
+    | _ -> Top
+
+  let eval_intrin (op : Lang.Ops.AllOps.intrin) (args : t list) = Top
+end
+
+module IsKnownValueAbstractionBasil = struct
+  include IsKnownBitsValueAbstraction
+  module E = Lang.Expr.BasilExpr
+end
+
+include Dataflow_graph.EasyForwardAnalysisPack (IsKnownValueAbstractionBasil)

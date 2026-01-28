@@ -55,5 +55,7 @@ end
 module TestBoolDom =
   ValueAbstractionSoundness (Analysis.Defuse_bool.IsZeroValueAbstractionBasil)
 
+module TestIsKnownDom = ValueAbstractionSoundness (Analysis.Known_bits.IsKnownValueAbstractionBasil)
+
 let _ =
-  Alcotest.run "value domain abstract eval soundness" [ TestBoolDom.suite ]
+  Alcotest.run "value domain abstract eval soundness" [ TestBoolDom.suite; TestIsKnownDom.suite ]
