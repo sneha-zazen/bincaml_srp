@@ -13,6 +13,31 @@ module IsKnownLattice = struct
 
   let known v = tnum v Bitvec.(zero ~size:(size v))
 
+let show = function
+  | Top -> "⊤"
+  | Bot -> "⊥"
+  | TNum { value = v; mask = m } ->
+    let size = Bitvec.size v in
+    let rec result acc i v m =
+      if i >= size then
+        acc
+      else
+        let one = Bitvec.(of_int ~size:(size v) 1) in
+        let mask_bit = Bitvec.(is_nonzero @@ bitand m one) in
+        let value_bit = Bitvec.(is_nonzero @@ bitand v one) in
+        
+        let bit_str = 
+          if mask_bit then "μ"
+          else if value_bit then "1"
+          else "0"
+        in
+        
+        let new_acc = bit_str ^ acc in 
+        result new_acc (i + 1) (Bitvec.lshr v one) (Bitvec.lshr m one)
+    in
+    result "" 0 v m
+    
+
   let compare a b =
     if equal a b then 0
     else
@@ -135,44 +160,15 @@ module IsKnownBitsOps = struct
     bind2 (fun (av, am) (bv, bm) ->
         if Bitvec.is_nonzero bm then Top
         else tnum (Bitvec.ashr av bv) (Bitvec.shl am bv))
-(* 
   let mul =
     bind2 (fun (av, am) (bv, bm) ->
-        let rec tnum_mul_aux acc a b =
+        let rec tnum_mul_aux acc (av, am) (bv, bm) =
           let one = Bitvec.(of_int ~size:(size av) 1) in
           let t_one = known one in
-          (* Check if a.value or a.mask is non-zero *)
-          if Bitvec.(is_zero @@ bitor av am) then acc
-          else
-            (* LSB of tnum a is a certain 1 *)
-            let acc' =
-              if Bitvec.(is_nonzero @@ bitand av one) then add acc b
-                (* LSB of tnum a is uncertain *)
-              else if Bitvec.(is_nonzero @@ bitand am one) then
-                join acc (add acc b)
-              (* LSB is certain 0 - no change to acc *)
-                else acc
-            in
-            let a' = bitLSHR a t_one in
-            let b' = bitSHL b t_one in
-            tnum_mul_aux acc' a' b'
-        in
-        (* Initial accumulator is TNUM(0, 0) *)
-        let zero = Bitvec.(of_int ~size:(size av) 0) in
-        let acc = known zero in
-        if Bitvec.size av = 0 || Bitvec.size bv = 0 then tnum av am
-        else
           let a = tnum av am in
           let b = tnum bv bm in
-          tnum_mul_aux acc a b) *)
-
-  let mul =
-    bind2 (fun (av, am) (bv, bm) ->
-        let rec tnum_mul_aux acc a b =
-          let one = Bitvec.(of_int ~size:(size av) 1) in
-          let t_one = known one in
           let recurse acc =
-            tnum_mul_aux acc (bitLSHR a t_one) (bitSHL b t_one)
+            bind2 (tnum_mul_aux acc) (bitLSHR a t_one) (bitSHL b t_one)
           in
 
           if Bitvec.(is_zero @@ bitor av am) then acc
@@ -183,10 +179,7 @@ module IsKnownBitsOps = struct
         in
         let acc = known Bitvec.(mul av bv) in
         if Bitvec.size av = 0 || Bitvec.size bv = 0 then tnum av am
-        else
-          let a = tnum av am in
-          let b = tnum bv bm in
-          tnum_mul_aux acc a b)
+        else tnum_mul_aux acc (av, am) (bv, bm))
 
   let concat a b =
     match (a, b) with
@@ -226,7 +219,7 @@ module IsKnownBitsValueAbstraction = struct
     | `BVSHL -> bitSHL a b
     | `BVLSHR -> bitLSHR a b
     | `BVASHR -> bitASHR a b
-    | `BVMUL -> mul a b
+    | `BVMUL -> mul a b 
     (*
     | `BVUDIV 
     | `BVUREM
