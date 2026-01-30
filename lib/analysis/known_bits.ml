@@ -160,7 +160,7 @@ module IsKnownBitsOps = struct
     bind2 (fun (av, am) (bv, bm) ->
         if Bitvec.is_nonzero bm then Top
         else tnum (Bitvec.ashr av bv) (Bitvec.shl am bv))
-  let mul =
+  (* let mul =
     bind2 (fun (av, am) (bv, bm) ->
         let rec tnum_mul_aux acc (av, am) (bv, bm) =
           let one = Bitvec.(of_int ~size:(size av) 1) in
@@ -179,7 +179,52 @@ module IsKnownBitsOps = struct
         in
         let acc = known Bitvec.(mul av bv) in
         if Bitvec.size av = 0 || Bitvec.size bv = 0 then tnum av am
-        else tnum_mul_aux acc (av, am) (bv, bm))
+        else tnum_mul_aux acc (av, am) (bv, bm)) *)
+
+        let mul =
+  bind2 (fun (av, am) (bv, bm) ->
+    let zero_tnum = known Bitvec.(of_int ~size:(size av) 0) in
+    let one = Bitvec.(of_int ~size:(size av) 1) in
+    let t_one = known one in
+    
+    let rec tnum_mul_aux accv accm p q =
+      let (pv, pm) = p in
+      let (qv, qm) = q in
+      
+      (* Check termination: P = (0,0) *)
+      if Bitvec.(is_zero @@ bitor pv pm) then
+        add accv accm
+      else
+        let p_lsb = Bitvec.(bitand pv one) in
+        let p_mask_lsb = Bitvec.(bitand pm one) in
+        let q_tnum = tnum qv qm in
+        
+        (* Shift P right, Q left for next iteration *)
+        let p_next = 
+          bind1 (fun (v, m) -> 
+            tnum Bitvec.(lshr v one) Bitvec.(lshr m one)) 
+          (tnum pv pm) 
+        in
+        let q_next = 
+          bind1 (fun (v, m) -> 
+            tnum Bitvec.(shl v one) Bitvec.(shl m one)) 
+          q_tnum 
+        in
+        
+        if Bitvec.(is_nonzero p_lsb) then
+          (* P[0] = 1: add Q.v to ACCV *)
+          let accv' = add accv (known qv) in
+          bind2 (tnum_mul_aux accv' accm) p_next q_next
+        else if Bitvec.(is_nonzero p_mask_lsb) then
+          (* P[0] = μ: add Q.m to ACCM, add 0 possibility *)
+          let accm' = add accm (tnum Bitvec.(of_int ~size:(size qm) 0) qm) in
+          bind2 (tnum_mul_aux accv accm') p_next q_next
+        else
+          (* P[0] = 0: don't add anything *)
+          bind2 (tnum_mul_aux accv accm) p_next q_next
+    in
+    
+    tnum_mul_aux zero_tnum zero_tnum (av, am) (bv, bm))
 
   let concat a b =
     match (a, b) with
